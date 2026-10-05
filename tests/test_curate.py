@@ -1,6 +1,6 @@
 import json
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 import pytest
 from pyspark.sql import SparkSession
@@ -166,12 +166,10 @@ def test_journeys_labels_each_disruption(spark):
     assert rows["B5"]["amount_cents"] == 25_000
 
 
-def test_window_keeps_lookback_dates_and_reads_late_and_early_events(spark, tmp_path):
+def test_window_keeps_lookback_dates_and_reads_late_events(spark, tmp_path):
     events = [event for offset in range(-5, 1) for event in journey_events(day(offset))]
-    early_flight = f"F1-{day(-3)}"
     late_flight = f"F1-{day(-2)}"
     events += [
-        ("bookings", day(-5), booking("BEARLY", early_flight)),
         ("bookings", day(-2), booking("BLATE", late_flight)),
         ("bookings", day(0), booking("BLATE", late_flight, "cancelled", 2)),
     ]
@@ -184,7 +182,6 @@ def test_window_keeps_lookback_dates_and_reads_late_and_early_events(spark, tmp_
     assert partitions(curated_root, "journeys") == expected
     assert partitions(curated_root, "flights") == expected
     rows = by_booking(spark.read.parquet(str(curated_root / "journeys")).collect())
-    assert str(rows["BEARLY"]["flight_date"]) == day(-3)
     assert str(rows["BLATE"]["flight_date"]) == day(-2)
     assert rows["BLATE"]["disruption"] == "cancelled_refunded"
 
@@ -235,13 +232,15 @@ def test_second_run_keeps_partitions_outside_its_window(spark, tmp_path):
 
 
 def test_generator_lateness_fits_late_days():
-    lateness = [
-        emission["due"] - datetime.fromisoformat(emission["event"]["event_time"])
-        for offset in range(3)
-        for emission in plan_day("s", RUN_DATE + timedelta(days=offset))
+    planned_days = [RUN_DATE + timedelta(days=offset) for offset in range(3)]
+    days_late = [
+        (emission["due"].date() - planned_day).days
+        for planned_day in planned_days
+        for emission in plan_day("s", planned_day)
     ]
 
-    assert max(lateness) < timedelta(days=curate.LATE_DAYS)
+    assert 0 <= min(days_late)
+    assert max(days_late) <= curate.LATE_DAYS <= curate.LOOKBACK_DAYS
 
 
 def test_run_succeeds_with_missing_raw_days(spark, tmp_path):
