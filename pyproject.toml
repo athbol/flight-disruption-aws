@@ -1,0 +1,37 @@
+[project]
+name = "flight-disruption-aws"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "boto3",
+    "confluent-kafka",
+]
+
+[dependency-groups]
+dev = [
+    "moto[dynamodb,s3]",
+    "pyspark==3.5.*",
+    "pytest",
+    "ruff",
+]
+infra = [
+    "pulumi",
+    "pulumi-aws",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fda"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
