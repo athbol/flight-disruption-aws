@@ -134,6 +134,7 @@ def test_journeys_labels_each_disruption(spark):
         booking("B3", still_delayed["flight_id"]),
         booking("B4", replacement["flight_id"], "rebooked", 2, cancelled["flight_id"]),
         booking("B5", cancelled["flight_id"], "cancelled", 2),
+        booking("B6", still_delayed["flight_id"], "rebooked", 2, cancelled["flight_id"]),
     ]
     tickets = [
         ticket("B1"),
@@ -141,6 +142,7 @@ def test_journeys_labels_each_disruption(spark):
         ticket("B3"),
         ticket("B4", "exchanged", 2),
         ticket("B5", "refunded", 2, amount=25_000),
+        ticket("B6", "exchanged", 2),
     ]
 
     result = curate.journeys(
@@ -157,6 +159,7 @@ def test_journeys_labels_each_disruption(spark):
         "B3": "delayed",
         "B4": "cancelled_rebooked",
         "B5": "cancelled_refunded",
+        "B6": "cancelled_rebooked",
     }
     assert rows["B4"]["flight_status"] == "departed"
     assert rows["B4"]["original_flight_status"] == "cancelled"
