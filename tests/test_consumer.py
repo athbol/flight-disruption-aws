@@ -7,9 +7,9 @@ from botocore.exceptions import ClientError
 from confluent_kafka import KafkaException
 from moto import mock_aws
 
-from fda.consumer import HEARTBEAT_SECONDS, METRIC_NAMESPACE, flush, record, run
+from fda.consumer import HEARTBEAT_SECONDS, METRIC_NAMESPACE, flush, run
 from fda.live import TABLE_NAME
-from fda.raw import FLUSH_SECONDS, objects
+from fda.raw import FLUSH_SECONDS
 
 REGION = "eu-central-1"
 BUCKET = "fda-raw-test"
@@ -65,13 +65,17 @@ def bucket_keys(s3):
 
 
 def fake_consumer(messages, s3=None, tick=lambda: None):
-    consumer = SimpleNamespace(messages=list(messages), commits=[], subscribed=[], closed=[])
+    consumer = SimpleNamespace(
+        messages=list(messages), polls=0, commits=[], subscribed=[], closed=[]
+    )
 
     def poll(timeout):
+        consumer.polls += 1
         tick()
         return consumer.messages.pop(0) if consumer.messages else None
 
     def commit(asynchronous):
+        assert asynchronous is False
         consumer.commits.append(bucket_keys(s3) if s3 else [])
 
     consumer.poll = poll
@@ -100,6 +104,23 @@ def until_drained(consumer):
     return lambda: not consumer.messages
 
 
+def after_polls(consumer, count):
+    return lambda: consumer.polls >= count
+
+
+def failing_on_second_put(table):
+    calls = []
+
+    def put_item(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 2:
+            error = {"Error": {"Code": "InternalServerError", "Message": "boom"}}
+            raise ClientError(error, "PutItem")
+        return table.put_item(**kwargs)
+
+    return SimpleNamespace(put_item=put_item, meta=table.meta)
+
+
 def metric_values(call):
     values = {}
     for datum in call["MetricData"]:
@@ -114,19 +135,22 @@ def test_commit_only_after_s3_objects_exist(aws):
         message("flights", 1, flight("F2")),
         message("bookings", 0, booking("B1")),
     ]
-    expected = sorted(key for key, _ in objects([record(m) for m in messages]))
+    expected = [
+        "raw/topic=bookings/dt=2026-10-05/0-000000000000-000000000000.jsonl.gz",
+        "raw/topic=flights/dt=2026-10-05/0-000000000000-000000000001.jsonl.gz",
+    ]
     clock, tick = fake_clock(FLUSH_SECONDS / 3)
     consumer = fake_consumer(messages, aws.s3, tick)
     run(consumer, aws.table, aws.s3, fake_cloudwatch(), BUCKET, until_drained(consumer), clock)
     assert consumer.commits == [expected]
-    assert len(expected) == 2
 
 
 def test_dynamodb_failure_means_no_commit(aws):
-    missing = aws.dynamodb.Table("does-not-exist")
-    consumer = fake_consumer([message("flights", 0, flight("F1"))], aws.s3)
+    table = failing_on_second_put(aws.table)
+    messages = [message("flights", 0, flight("F1")), message("flights", 1, flight("F2"))]
+    consumer = fake_consumer(messages, aws.s3)
     with pytest.raises(ClientError):
-        run(consumer, missing, aws.s3, fake_cloudwatch(), BUCKET, until_drained(consumer))
+        run(consumer, table, aws.s3, fake_cloudwatch(), BUCKET, until_drained(consumer))
     assert consumer.commits == []
     assert bucket_keys(aws.s3) == []
 
@@ -142,6 +166,22 @@ def test_stop_flushes_and_commits(aws):
     assert consumer.subscribed == [("flights", "bookings", "tickets")]
 
 
+def test_flush_waits_a_full_interval_again(aws):
+    messages = [message("flights", offset, flight(f"F{offset}")) for offset in range(4)]
+    clock, tick = fake_clock(FLUSH_SECONDS / 2)
+    consumer = fake_consumer(messages, aws.s3, tick)
+    run(consumer, aws.table, aws.s3, fake_cloudwatch(), BUCKET, after_polls(consumer, 4), clock)
+    assert len(consumer.commits) == 2
+
+
+def test_heartbeat_waits_a_full_interval_again(aws):
+    clock, tick = fake_clock(HEARTBEAT_SECONDS / 2)
+    consumer = fake_consumer([], aws.s3, tick)
+    cloudwatch = fake_cloudwatch()
+    run(consumer, aws.table, aws.s3, cloudwatch, BUCKET, after_polls(consumer, 4), clock)
+    assert len(cloudwatch.calls) == 2
+
+
 def test_clock_drives_flush_and_heartbeat(aws):
     messages = [message("flights", 0, flight("F1")), message("bookings", 0, booking("B1"))]
     clock, tick = fake_clock(FLUSH_SECONDS)
@@ -152,6 +192,11 @@ def test_clock_drives_flush_and_heartbeat(aws):
     assert FLUSH_SECONDS >= HEARTBEAT_SECONDS
     assert len(cloudwatch.calls) == 2
     assert cloudwatch.calls[0]["Namespace"] == METRIC_NAMESPACE
+    assert {
+        "MetricName": "EventsWritten",
+        "Dimensions": [{"Name": "Topic", "Value": "flights"}],
+        "Value": 1,
+    } in cloudwatch.calls[0]["MetricData"]
     assert metric_values(cloudwatch.calls[0]) == {
         (None, "Heartbeat"): 1,
         ("flights", "EventsWritten"): 1,
