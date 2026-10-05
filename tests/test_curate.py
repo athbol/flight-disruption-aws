@@ -186,6 +186,22 @@ def test_window_keeps_lookback_dates_and_reads_late_events(spark, tmp_path):
     assert rows["BLATE"]["disruption"] == "cancelled_refunded"
 
 
+def test_window_drops_flights_after_run_date(spark, tmp_path):
+    tomorrow = flight(day(1))
+    events = journey_events(day(0)) + [
+        ("flights", day(0), tomorrow),
+        ("bookings", day(0), booking("BTOMORROW", tomorrow["flight_id"])),
+        ("tickets", day(0), ticket("BTOMORROW")),
+    ]
+    raw_root = write_raw(tmp_path, events)
+    curated_root = tmp_path / "curated"
+
+    curate.run(spark, raw_root, str(curated_root), RUN_DATE)
+
+    assert partitions(curated_root, "journeys") == [f"flight_date={day(0)}"]
+    assert partitions(curated_root, "flights") == [f"flight_date={day(0)}"]
+
+
 def test_run_end_to_end_on_generated_days(spark, tmp_path):
     first = RUN_DATE - timedelta(days=1)
     emissions = plan_day("s", first) + plan_day("s", RUN_DATE)
