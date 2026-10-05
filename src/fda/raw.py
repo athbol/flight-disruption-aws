@@ -12,14 +12,15 @@ def dt(timestamp_ms: int) -> str:
     return datetime.fromtimestamp(timestamp_ms / 1000, tz=UTC).strftime("%Y-%m-%d")
 
 
-def key(topic: str, dt: str, partition: int, first_offset: int, last_offset: int) -> str:
+def key(topic: str, day: str, partition: int, first_offset: int, last_offset: int) -> str:
     first = str(first_offset).zfill(OFFSET_DIGITS)
     last = str(last_offset).zfill(OFFSET_DIGITS)
-    return f"{RAW_PREFIX}/topic={topic}/dt={dt}/{partition}-{first}-{last}.jsonl.gz"
+    return f"{RAW_PREFIX}/topic={topic}/dt={day}/{partition}-{first}-{last}.jsonl.gz"
 
 
 def body(records: list[dict]) -> bytes:
-    return gzip.compress(b"".join(record["value"] + b"\n" for record in records))
+    data = b"".join(record["value"] + b"\n" for record in records)
+    return gzip.compress(data, mtime=0)
 
 
 def group(record: dict) -> tuple[str, str, int]:
