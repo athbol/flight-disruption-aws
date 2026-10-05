@@ -7,7 +7,16 @@ from botocore.exceptions import ClientError
 from confluent_kafka import KafkaException
 from moto import mock_aws
 
-from fda.consumer import HEARTBEAT_SECONDS, METRIC_NAMESPACE, flush, run
+from fda.consumer import (
+    HEARTBEAT,
+    HEARTBEAT_SECONDS,
+    METRIC_NAMESPACE,
+    STALE,
+    TOPICS,
+    WRITTEN,
+    flush,
+    run,
+)
 from fda.live import TABLE_NAME
 from fda.raw import FLUSH_SECONDS
 
@@ -129,6 +138,14 @@ def metric_values(call):
     return values
 
 
+def beat(counts):
+    values = {(None, HEARTBEAT): 1}
+    for topic in TOPICS:
+        values[(topic, WRITTEN)] = 0
+        values[(topic, STALE)] = 0
+    return values | counts
+
+
 def test_commit_only_after_s3_objects_exist(aws):
     messages = [
         message("flights", 0, flight("F1")),
@@ -197,15 +214,9 @@ def test_clock_drives_flush_and_heartbeat(aws):
         "Dimensions": [{"Name": "Topic", "Value": "flights"}],
         "Value": 1,
     } in cloudwatch.calls[0]["MetricData"]
-    assert metric_values(cloudwatch.calls[0]) == {
-        (None, "Heartbeat"): 1,
-        ("flights", "EventsWritten"): 1,
-    }
-    assert metric_values(cloudwatch.calls[1]) == {
-        (None, "Heartbeat"): 1,
-        ("flights", "EventsWritten"): 0,
-        ("bookings", "EventsWritten"): 1,
-    }
+    assert len(cloudwatch.calls[0]["MetricData"]) == 7
+    assert metric_values(cloudwatch.calls[0]) == beat({("flights", WRITTEN): 1})
+    assert metric_values(cloudwatch.calls[1]) == beat({("bookings", WRITTEN): 1})
 
 
 def test_duplicate_counts_as_stale(aws):
@@ -215,11 +226,8 @@ def test_duplicate_counts_as_stale(aws):
     consumer = fake_consumer(messages, aws.s3, tick)
     cloudwatch = fake_cloudwatch()
     run(consumer, aws.table, aws.s3, cloudwatch, BUCKET, until_drained(consumer), clock)
-    assert metric_values(cloudwatch.calls[0]) == {
-        (None, "Heartbeat"): 1,
-        ("flights", "EventsWritten"): 1,
-        ("flights", "EventsStale"): 1,
-    }
+    expected = beat({("flights", WRITTEN): 1, ("flights", STALE): 1})
+    assert metric_values(cloudwatch.calls[0]) == expected
 
 
 def test_empty_flush_is_a_no_op():
