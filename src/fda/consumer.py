@@ -7,14 +7,19 @@ from collections import Counter
 import boto3
 from confluent_kafka import KafkaException
 
+from fda import schemas
 from fda.live import TABLE_NAME, put_live
 from fda.raw import objects, should_flush
 
-TOPICS = ("flights", "bookings", "tickets")
+TOPICS = tuple(schemas.TOPICS)
 GROUP_ID = "fda-consumer"
 HEARTBEAT_SECONDS = 60
 METRIC_NAMESPACE = "FlightDisruption"
 POLL_SECONDS = 1.0
+HEARTBEAT = "Heartbeat"
+WRITTEN = "EventsWritten"
+STALE = "EventsStale"
+TOPIC_DIMENSION = "Topic"
 
 
 def record(msg):
@@ -30,7 +35,7 @@ def record(msg):
 def handle(table, msg, buffer, counts):
     event = json.loads(msg.value())
     written = put_live(table, msg.topic(), event)
-    counts[(msg.topic(), "EventsWritten" if written else "EventsStale")] += 1
+    counts[(msg.topic(), WRITTEN if written else STALE)] += 1
     buffer.append(record(msg))
 
 
@@ -44,9 +49,9 @@ def flush(s3, bucket, consumer, buffer):
 
 
 def heartbeat(cloudwatch, counts):
-    data = [{"MetricName": "Heartbeat", "Value": 1}]
+    data = [{"MetricName": HEARTBEAT, "Value": 1}]
     for (topic, metric), value in counts.items():
-        dimensions = [{"Name": "Topic", "Value": topic}]
+        dimensions = [{"Name": TOPIC_DIMENSION, "Value": topic}]
         data.append({"MetricName": metric, "Dimensions": dimensions, "Value": value})
     cloudwatch.put_metric_data(Namespace=METRIC_NAMESPACE, MetricData=data)
     for key in counts:
