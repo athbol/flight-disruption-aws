@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 
-from pyspark.sql.functions import col
+from pyspark.sql import Window
+from pyspark.sql.functions import col, row_number
 from pyspark.sql.types import LongType, StringType, StructField, StructType
 
 from fda.schemas import TOPICS
@@ -29,4 +30,14 @@ def read_topic(spark, raw_root: str, topic: str, days: list[str]):
         .option("basePath", raw_root)
         .json(f"{raw_root}/topic={topic}")
         .filter(col("dt").isin(days))
+    )
+
+
+def latest(df, key: str):
+    newest_first = Window.partitionBy(key).orderBy(col("sequence").desc())
+    return (
+        df.dropDuplicates(["event_id"])
+        .withColumn("rank", row_number().over(newest_first))
+        .filter(col("rank") == 1)
+        .drop("rank")
     )
