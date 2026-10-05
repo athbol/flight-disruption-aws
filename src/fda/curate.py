@@ -84,11 +84,15 @@ def in_window(df, run_date: date, lookback_days: int):
 
 
 def write(df, curated_root: str, name: str):
-    df.write.mode("overwrite").partitionBy("flight_date").parquet(f"{curated_root}/{name}")
+    (
+        df.write.mode("overwrite")
+        .option("partitionOverwriteMode", "dynamic")
+        .partitionBy("flight_date")
+        .parquet(f"{curated_root}/{name}")
+    )
 
 
 def run(spark, raw_root: str, curated_root: str, run_date: date, lookback_days=LOOKBACK_DAYS):
-    spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
     days = days_back(run_date, lookback_days)
     flights = latest(read_topic(spark, raw_root, "flights", days), "flight_id")
     bookings = latest(read_topic(spark, raw_root, "bookings", days), "booking_id")
