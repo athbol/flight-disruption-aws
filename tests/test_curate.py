@@ -1,4 +1,5 @@
 import json
+import sys
 from collections import defaultdict
 from datetime import date, timedelta
 
@@ -19,6 +20,7 @@ def spark():
         SparkSession.builder.master("local[1]")
         .config("spark.sql.shuffle.partitions", "1")
         .config("spark.ui.enabled", "false")
+        .config("spark.pyspark.python", sys.executable)
         .getOrCreate()
     )
     yield session
