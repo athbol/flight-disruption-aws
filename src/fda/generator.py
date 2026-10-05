@@ -53,7 +53,8 @@ def midnight(day):
 def plan_day(seed: str, day: date) -> list[dict]:
     rng = random.Random(f"{seed}:{day}")
     start = midnight(day)
-    flights = [new_flight(day, start, number) for number in range(FLIGHTS_PER_DAY)]
+    cancelled_at = start + CANCELLATION_NOTICE
+    flights = [new_flight(day, number) for number in range(FLIGHTS_PER_DAY)]
     outcomes = [draw_outcome(rng) for _ in flights]
     cancelled = {
         flight["flight_id"]
@@ -63,32 +64,34 @@ def plan_day(seed: str, day: date) -> list[dict]:
     emissions = []
     for number, (flight, (outcome, delay)) in enumerate(zip(flights, outcomes, strict=True)):
         hold = draw_hold(rng) if outcome == "cancelled" else timedelta(0)
-        changes = flight_changes(start, flight, outcome, delay)
-        emissions += emit(rng, seed, "flights", flight["flight_id"], changes, hold)
+        changes = flight_changes(start, cancelled_at, flight, outcome, delay)
+        emissions += entity_emissions(rng, seed, "flights", flight["flight_id"], changes, hold)
         alternatives = [
             other["flight_id"]
             for other in flights
             if (other["origin"], other["destination"]) == (flight["origin"], flight["destination"])
             and other["flight_id"] not in cancelled
         ]
+        moved_from = cancelled_at if outcome == "cancelled" else None
         for seat in range(PASSENGERS_PER_FLIGHT):
             passenger = number * PASSENGERS_PER_FLIGHT + seat
             emissions += passenger_emissions(
-                rng, seed, day, flight, passenger, outcome == "cancelled", alternatives
+                rng, seed, day, flight, passenger, moved_from, alternatives
             )
     return sorted(emissions, key=lambda emission: emission["due"])
 
 
-def new_flight(day, start, number):
+def new_flight(day, number):
     origin, destination = ROUTES[number % len(ROUTES)]
     flight_no = f"F{FIRST_FLIGHT_NO + number:04d}"
+    departure = midnight(day) + FIRST_DEPARTURE + number * DEPARTURE_GAP
     return {
         "flight_id": f"{flight_no}-{day}",
         "flight_no": flight_no,
         "flight_date": day.isoformat(),
         "origin": origin,
         "destination": destination,
-        "scheduled_departure": (start + FIRST_DEPARTURE + number * DEPARTURE_GAP).isoformat(),
+        "scheduled_departure": departure.isoformat(),
         "delay_minutes": 0,
     }
 
@@ -113,18 +116,18 @@ def draw_lag(rng):
     return timedelta(seconds=rng.randint(low, high))
 
 
-def flight_changes(start, flight, outcome, delay):
+def flight_changes(start, cancelled_at, flight, outcome, delay):
     departure = datetime.fromisoformat(flight["scheduled_departure"])
     changes = [(start, "scheduled", flight)]
     if outcome == "cancelled":
-        return changes + [(start + CANCELLATION_NOTICE, "cancelled", flight)]
+        return changes + [(cancelled_at, "cancelled", flight)]
     if outcome == "delayed":
         flight = flight | {"delay_minutes": delay}
         changes.append((departure - DELAY_NOTICE, "delayed", flight))
     return changes + [(departure + timedelta(minutes=delay), "departed", flight)]
 
 
-def passenger_emissions(rng, seed, day, flight, passenger, flight_cancelled, alternatives):
+def passenger_emissions(rng, seed, day, flight, passenger, moved_from, alternatives):
     start = midnight(day)
     suffix = f"{day:%Y%m%d}-{passenger:03d}"
     booked_at = start + timedelta(seconds=rng.randint(0, SALES_WINDOW_SECONDS))
@@ -142,9 +145,8 @@ def passenger_emissions(rng, seed, day, flight, passenger, flight_cancelled, alt
     }
     booking_changes = [(booked_at, "created", booking)]
     ticket_changes = [(booked_at, "issued", ticket)]
-    if flight_cancelled:
-        handled_after = timedelta(seconds=rng.randint(1, REBOOKING_WINDOW_SECONDS))
-        moved_at = start + CANCELLATION_NOTICE + handled_after
+    if moved_from:
+        moved_at = moved_from + timedelta(seconds=rng.randint(1, REBOOKING_WINDOW_SECONDS))
         if alternatives and rng.random() < REBOOK_RATE:
             rebooked = booking | {
                 "flight_id": rng.choice(alternatives),
@@ -155,12 +157,12 @@ def passenger_emissions(rng, seed, day, flight, passenger, flight_cancelled, alt
         else:
             booking_changes.append((moved_at, "cancelled", booking))
             ticket_changes.append((moved_at, "refunded", ticket))
-    bookings = emit(rng, seed, "bookings", booking["booking_id"], booking_changes)
-    tickets = emit(rng, seed, "tickets", ticket["ticket_id"], ticket_changes)
+    bookings = entity_emissions(rng, seed, "bookings", booking["booking_id"], booking_changes)
+    tickets = entity_emissions(rng, seed, "tickets", ticket["ticket_id"], ticket_changes)
     return bookings + tickets
 
 
-def emit(rng, seed, topic, entity_id, changes, hold_last=timedelta(0)):
+def entity_emissions(rng, seed, topic, entity_id, changes, hold_last=timedelta(0)):
     emissions = []
     for sequence, (event_time, event_type, state) in enumerate(changes, start=1):
         values = state | {
@@ -174,11 +176,12 @@ def emit(rng, seed, topic, entity_id, changes, hold_last=timedelta(0)):
         copies = 2 if rng.random() < DUPLICATE_RATE else 1
         for _ in range(copies):
             due = event_time + hold + draw_lag(rng)
-            emissions.append({"topic": topic, "key": entity_id, "due": due, "event": event})
+            emissions.append({"topic": topic, "key": entity_id, "due": due, "event": dict(event)})
     return emissions
 
 
 def create_topics(bootstrap):
+    from confluent_kafka import KafkaError, KafkaException
     from confluent_kafka.admin import AdminClient, NewTopic
 
     admin = AdminClient({"bootstrap.servers": bootstrap})
@@ -186,7 +189,16 @@ def create_topics(bootstrap):
     missing = [NewTopic(topic, num_partitions=1) for topic in TOPICS if topic not in existing]
     if missing:
         for future in admin.create_topics(missing).values():
-            future.result()
+            try:
+                future.result()
+            except KafkaException as error:
+                if error.args[0].code() != KafkaError.TOPIC_ALREADY_EXISTS:
+                    raise
+
+
+def check_delivery(err, _message):
+    if err is not None:
+        raise RuntimeError(f"delivery failed: {err}")
 
 
 def wait_until(producer, moment):
@@ -217,7 +229,9 @@ def main():
         for emission in [e for e in queue if e["due"] < next_midnight]:
             wait_until(producer, emission["due"])
             value = json.dumps(emission["event"])
-            producer.produce(emission["topic"], key=emission["key"], value=value)
+            producer.produce(
+                emission["topic"], key=emission["key"], value=value, on_delivery=check_delivery
+            )
             producer.poll(0)
         queue = [e for e in queue if e["due"] >= next_midnight]
         wait_until(producer, next_midnight)
