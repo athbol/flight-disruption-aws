@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 import pytest
 from pyspark.sql import SparkSession
 
-from fda.curate import LATE_DAYS, journeys, latest, run, schema
+from fda import curate
 from fda.generator import plan_day
 from fda.raw import RAW_PREFIX, body, key
 from fda.schemas import FLIGHTS, JOURNEYS
@@ -93,7 +93,7 @@ def write_raw(root, events):
 
 
 def frame(spark, topic, events):
-    return spark.createDataFrame(events, schema(topic))
+    return spark.createDataFrame(events, curate.schema(topic))
 
 
 def by_booking(rows):
@@ -113,7 +113,7 @@ def test_latest_keeps_highest_sequence_once_per_entity(spark):
         flight(day(0), "scheduled", sequence=1, number=2),
     ]
 
-    rows = latest(frame(spark, "flights", events), "flight_id").collect()
+    rows = curate.latest(frame(spark, "flights", events), "flight_id").collect()
 
     assert sorted((row["flight_id"], row["sequence"]) for row in rows) == [
         (f"F1-{day(0)}", 3),
@@ -143,7 +143,7 @@ def test_journeys_labels_each_disruption(spark):
         ticket("B5", "refunded", 2, amount=25_000),
     ]
 
-    result = journeys(
+    result = curate.journeys(
         frame(spark, "bookings", bookings),
         frame(spark, "flights", flights),
         frame(spark, "tickets", tickets),
@@ -178,7 +178,7 @@ def test_window_keeps_lookback_dates_and_reads_late_and_early_events(spark, tmp_
     raw_root = write_raw(tmp_path, events)
     curated_root = tmp_path / "curated"
 
-    run(spark, raw_root, str(curated_root), RUN_DATE)
+    curate.run(spark, raw_root, str(curated_root), RUN_DATE)
 
     expected = [f"flight_date={day(offset)}" for offset in range(-3, 1)]
     assert partitions(curated_root, "journeys") == expected
@@ -195,9 +195,9 @@ def test_run_end_to_end_on_generated_days(spark, tmp_path):
     events = [(e["topic"], e["due"].date().isoformat(), e["event"]) for e in emissions]
     raw_root = write_raw(tmp_path, events)
     curated_root = tmp_path / "curated"
-    run_date = RUN_DATE + timedelta(days=LATE_DAYS)
+    run_date = RUN_DATE + timedelta(days=curate.LATE_DAYS)
 
-    run(spark, raw_root, str(curated_root), run_date)
+    curate.run(spark, raw_root, str(curated_root), run_date)
 
     journey_rows = spark.read.parquet(str(curated_root / "journeys")).collect()
     flight_rows = spark.read.parquet(str(curated_root / "flights")).collect()
@@ -226,8 +226,8 @@ def test_second_run_keeps_partitions_outside_its_window(spark, tmp_path):
     raw_root = write_raw(tmp_path, events)
     curated_root = tmp_path / "curated"
 
-    run(spark, raw_root, str(curated_root), RUN_DATE)
-    run(spark, raw_root, str(curated_root), RUN_DATE + timedelta(days=4))
+    curate.run(spark, raw_root, str(curated_root), RUN_DATE)
+    curate.run(spark, raw_root, str(curated_root), RUN_DATE + timedelta(days=4))
 
     expected = [f"flight_date={day(offset)}" for offset in range(-3, 5)]
     assert partitions(curated_root, "journeys") == expected
@@ -241,7 +241,7 @@ def test_generator_lateness_fits_late_days():
         for emission in plan_day("s", RUN_DATE + timedelta(days=offset))
     ]
 
-    assert max(lateness) < timedelta(days=LATE_DAYS)
+    assert max(lateness) < timedelta(days=curate.LATE_DAYS)
 
 
 def test_run_succeeds_with_missing_raw_days(spark, tmp_path):
@@ -249,7 +249,7 @@ def test_run_succeeds_with_missing_raw_days(spark, tmp_path):
     raw_root = write_raw(tmp_path, events)
     curated_root = tmp_path / "curated"
 
-    run(spark, raw_root, str(curated_root), RUN_DATE)
+    curate.run(spark, raw_root, str(curated_root), RUN_DATE)
 
     expected = [f"flight_date={day(-1)}", f"flight_date={day(0)}"]
     assert partitions(curated_root, "journeys") == expected
