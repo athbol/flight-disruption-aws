@@ -124,6 +124,18 @@ def test_latest_keeps_highest_sequence_once_per_entity(spark):
     ]
 
 
+def test_latest_drops_rows_without_a_key_or_sequence(spark):
+    events = [
+        flight(day(0), "scheduled", sequence=1),
+        flight(day(0), "departed", sequence=None) | {"event_id": "no-sequence"},
+        flight(day(0), "departed", sequence=2, number=2) | {"flight_id": None},
+    ]
+
+    rows = curate.latest(frame(spark, "flights", events), "flight_id").collect()
+
+    assert [(row["flight_id"], row["sequence"]) for row in rows] == [(f"F1-{day(0)}", 1)]
+
+
 def test_journeys_labels_each_disruption(spark):
     on_time = flight(day(0), "departed", number=1)
     late = flight(day(0), "departed", delay=30, number=2)
