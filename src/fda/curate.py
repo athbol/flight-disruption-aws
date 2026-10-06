@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from pyspark.errors import AnalysisException
 from pyspark.sql import Window
-from pyspark.sql.functions import col, row_number, when
+from pyspark.sql.functions import col, from_json, row_number, when
 from pyspark.sql.types import LongType, StringType, StructField, StructType
 
 from fda.schemas import FLIGHTS, JOURNEYS, LONG_FIELDS, PARTITION_KEY, TOPICS
@@ -31,11 +31,10 @@ def days_back(run_date: date, count: int) -> list[str]:
 def read_topic(spark, raw_root: str, topic: str, days: list[str]):
     fields = schema(topic)
     try:
-        return (
-            spark.read.schema(fields)
-            .option("basePath", raw_root)
-            .json(f"{raw_root}/topic={topic}/dt={{{','.join(days)}}}")
+        lines = spark.read.option("basePath", raw_root).text(
+            f"{raw_root}/topic={topic}/dt={{{','.join(days)}}}"
         )
+        return lines.select(from_json("value", fields).alias("event")).select("event.*")
     except AnalysisException as error:
         if error.getErrorClass() != "PATH_NOT_FOUND":
             raise
@@ -45,7 +44,8 @@ def read_topic(spark, raw_root: str, topic: str, days: list[str]):
 def latest(df, key: str):
     newest_first = Window.partitionBy(key).orderBy(col("sequence").desc())
     return (
-        df.dropna(subset=[key, "sequence"])
+        df.dropna(subset=[key, "sequence", "event_id"])
+        .filter(col("event_id") != "")
         .dropDuplicates(["event_id"])
         .withColumn("rank", row_number().over(newest_first))
         .filter(col("rank") == 1)

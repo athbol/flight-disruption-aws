@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
-from fda.raw import body, dt, key, objects, should_flush
+from fda.raw import FLUSH_BYTES, body, dt, key, objects, should_flush
 
 DAY_ONE = datetime(2026, 10, 5, 12, tzinfo=UTC)
 DAY_TWO = datetime(2026, 10, 6, 12, tzinfo=UTC)
@@ -92,8 +92,14 @@ def test_objects_of_nothing_is_empty():
 
 
 def test_should_flush():
-    assert should_flush(0, 1000) is False
-    assert should_flush(4999, 10) is False
-    assert should_flush(5000, 0) is True
-    assert should_flush(1, 300) is True
-    assert should_flush(1, 299) is False
+    assert should_flush(0, 0, 1000) is False
+    assert should_flush(4999, 0, 10) is False
+    assert should_flush(5000, 0, 0) is True
+    assert should_flush(1, 0, 300) is True
+    assert should_flush(1, 0, 299) is False
+
+
+def test_should_flush_on_buffered_bytes():
+    assert FLUSH_BYTES == 16 * 1024 * 1024
+    assert should_flush(1, FLUSH_BYTES - 1, 0) is False
+    assert should_flush(1, FLUSH_BYTES, 0) is True

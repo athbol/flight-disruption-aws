@@ -23,6 +23,8 @@ def item(topic, event):
 
 
 def put_live(table, topic, event):
+    if event["event_id"] in (None, ""):
+        raise ValueError("event_id is required")
     if type(event["sequence"]) is not int:
         raise TypeError("sequence must be an int")
     try:

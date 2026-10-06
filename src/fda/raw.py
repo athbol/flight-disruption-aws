@@ -6,6 +6,7 @@ RAW_PREFIX = "raw"
 OFFSET_DIGITS = 12
 FLUSH_RECORDS = 5000
 FLUSH_SECONDS = 300
+FLUSH_BYTES = 16 * 1024 * 1024
 
 
 def dt(timestamp_ms: int) -> str:
@@ -37,5 +38,7 @@ def objects(records: list[dict]) -> list[tuple[str, bytes]]:
     return pairs
 
 
-def should_flush(count: int, seconds_since_flush: float) -> bool:
-    return count > 0 and (count >= FLUSH_RECORDS or seconds_since_flush >= FLUSH_SECONDS)
+def should_flush(count: int, size: int, seconds_since_flush: float) -> bool:
+    return count > 0 and (
+        count >= FLUSH_RECORDS or size >= FLUSH_BYTES or seconds_since_flush >= FLUSH_SECONDS
+    )
