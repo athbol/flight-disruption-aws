@@ -36,7 +36,7 @@ def record(msg):
 
 def handle(table, msg, buffer, counts):
     value = msg.value()
-    if value is None or b"\n" in value:
+    if value is None or b"\n" in value or b"\r" in value:
         counts[(msg.topic(), REJECTED)] += 1
         return
     try:
