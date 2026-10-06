@@ -170,6 +170,11 @@ def test_event_without_an_event_id_is_a_value_error(live_table, change):
     assert live_table.scan()["Items"] == []
 
 
+def test_event_id_zero_is_written(live_table):
+    assert put_live(live_table, "flights", flight(1) | {"event_id": 0})
+    assert stored(live_table, "FLIGHT#GL400-2026-10-05", "STATE")["event_id"] == 0
+
+
 def test_event_missing_the_event_id_field_is_a_key_error(live_table):
     event = flight(1)
     del event["event_id"]

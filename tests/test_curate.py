@@ -141,6 +141,8 @@ def test_latest_drops_rows_without_an_event_id(spark):
         flight(day(0), "scheduled", sequence=1),
         flight(day(0), "departed", sequence=1, number=2) | {"event_id": None},
         flight(day(0), "delayed", sequence=1, number=3) | {"event_id": None},
+        flight(day(0), "departed", sequence=1, number=4) | {"event_id": ""},
+        flight(day(0), "delayed", sequence=1, number=5) | {"event_id": ""},
     ]
 
     rows = curate.latest(frame(spark, "flights", events), "flight_id").collect()
