@@ -54,7 +54,7 @@ def glue_policy(bucket_arn, region, account):
             ),
             allow(
                 ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"],
-                [bucket_arn, f"{bucket_arn}/curated/*"],
+                [bucket_arn, f"{bucket_arn}/curated/*", f"{bucket_arn}/curated_$folder$"],
             ),
             allow(
                 ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
