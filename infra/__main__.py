@@ -73,7 +73,9 @@ table = aws.dynamodb.Table(
     deletion_protection_enabled=False,
 )
 
-consumer = aws.iam.User("consumer", name="fda-consumer")
+boundary = aws.iam.Policy("boundary", name="fda-boundary", policy=json.dumps(iam.boundary_policy()))
+
+consumer = aws.iam.User("consumer", name="fda-consumer", permissions_boundary=boundary.arn)
 aws.iam.UserPolicy(
     "consumer-policy",
     user=consumer.name,
@@ -86,6 +88,7 @@ consumer_key = aws.iam.AccessKey("consumer-key", user=consumer.name)
 glue_role = aws.iam.Role(
     "glue",
     name="fda-glue",
+    permissions_boundary=boundary.arn,
     assume_role_policy=json.dumps(
         {
             "Version": "2012-10-17",

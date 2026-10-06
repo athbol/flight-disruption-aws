@@ -96,18 +96,53 @@ def github_trust(account, sub):
     )
 
 
+def boundary_policy():
+    services = ("s3", "dynamodb", "glue", "athena", "logs", "cloudwatch", "events", "sns")
+    return policy([allow([f"{service}:*" for service in services], ["*"])])
+
+
 def deploy_policy(account):
     iam = f"arn:aws:iam::{account}"
+    fda = [
+        f"{iam}:role/fda-*",
+        f"{iam}:user/fda-*",
+        f"{iam}:policy/fda-*",
+        f"{iam}:instance-profile/fda-*",
+    ]
+    boundary = {"StringEquals": {"iam:PermissionsBoundary": f"{iam}:policy/fda-boundary"}}
     return policy(
         [
             allow(
-                ["iam:*"],
                 [
-                    f"{iam}:role/fda-*",
-                    f"{iam}:user/fda-*",
-                    f"{iam}:policy/fda-*",
-                    f"{iam}:instance-profile/fda-*",
+                    "iam:CreateRole",
+                    "iam:CreateUser",
+                    "iam:PutRolePolicy",
+                    "iam:PutUserPolicy",
+                    "iam:AttachRolePolicy",
+                    "iam:AttachUserPolicy",
+                    "iam:PutRolePermissionsBoundary",
+                    "iam:PutUserPermissionsBoundary",
                 ],
+                fda,
+                boundary,
+            ),
+            allow(
+                [
+                    "iam:Get*",
+                    "iam:List*",
+                    "iam:Delete*",
+                    "iam:Detach*",
+                    "iam:Tag*",
+                    "iam:Untag*",
+                    "iam:Update*",
+                    "iam:CreateAccessKey",
+                    "iam:DeleteAccessKey",
+                    "iam:UpdateAccessKey",
+                    "iam:CreatePolicy",
+                    "iam:CreatePolicyVersion",
+                    "iam:DeletePolicyVersion",
+                ],
+                fda,
             ),
             allow(
                 ["iam:GetOpenIDConnectProvider", "iam:TagOpenIDConnectProvider"],
@@ -124,6 +159,27 @@ def deploy_policy(account):
                     "iam:Create*",
                 ],
                 [f"{iam}:role/fda-gha-*", oidc_provider_arn(account)],
+            ),
+            deny(["iam:DeleteRolePermissionsBoundary", "iam:DeleteUserPermissionsBoundary"], ["*"]),
+            deny(
+                [
+                    "iam:Create*",
+                    "iam:Delete*",
+                    "iam:Set*",
+                    "iam:Tag*",
+                    "iam:Untag*",
+                ],
+                [f"{iam}:policy/fda-boundary"],
+            ),
+            deny(
+                [
+                    "cloudtrail:StopLogging",
+                    "cloudtrail:DeleteTrail",
+                    "cloudtrail:UpdateTrail",
+                    "budgets:ModifyBudget",
+                    "budgets:DeleteBudget",
+                ],
+                ["*"],
             ),
         ]
     )
