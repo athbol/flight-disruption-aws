@@ -86,7 +86,9 @@ table = aws.dynamodb.Table(
     deletion_protection_enabled=False,
 )
 
-boundary = aws.iam.Policy("boundary", name="fda-boundary", policy=json.dumps(iam.boundary_policy()))
+boundary = aws.iam.Policy(
+    "boundary", name="fda-boundary", policy=json.dumps(iam.boundary_policy(account))
+)
 
 consumer = aws.iam.User("consumer", name="fda-consumer", permissions_boundary=boundary.arn)
 aws.iam.UserPolicy(

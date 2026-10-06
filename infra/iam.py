@@ -131,10 +131,10 @@ def github_trust(account, sub):
     )
 
 
-def boundary_policy():
+def boundary_policy(account):
     services = ("s3", "dynamodb", "glue", "athena", "logs", "cloudwatch", "events", "sns")
     data = allow([f"{service}:*" for service in services], ["*"])
-    return policy([data, *trail_bucket_lock("arn:aws:s3:::fda-*-trail")])
+    return policy([data, *trail_bucket_lock(f"arn:aws:s3:::{trail_bucket_name(account)}")])
 
 
 def deploy_policy(account):
