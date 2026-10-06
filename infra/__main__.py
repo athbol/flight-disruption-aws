@@ -17,30 +17,37 @@ FDA_MODULES = ("__init__.py", "schemas.py", "curate.py")
 HIVE_PARQUET = "org.apache.hadoop.hive.ql.io.parquet"
 NAMED_QUERIES = ("disruptions_last_3_days", "passenger_journey", "delayed_flights_yesterday")
 
+
+def private_bucket(name, bucket_name, rules):
+    bucket = aws.s3.Bucket(name, bucket=bucket_name)
+    aws.s3.BucketPublicAccessBlock(
+        f"{name}-public-access",
+        bucket=bucket.id,
+        block_public_acls=True,
+        block_public_policy=True,
+        ignore_public_acls=True,
+        restrict_public_buckets=True,
+    )
+    aws.s3.BucketServerSideEncryptionConfiguration(
+        f"{name}-encryption",
+        bucket=bucket.id,
+        rules=[{"apply_server_side_encryption_by_default": {"sse_algorithm": "AES256"}}],
+    )
+    aws.s3.BucketLifecycleConfiguration(f"{name}-lifecycle", bucket=bucket.id, rules=rules)
+    return bucket
+
+
 config = pulumi.Config("fda")
 vps_ip = config.require_secret("vps_ip")
 alert_email = config.require_secret("alert_email")
 account = aws.get_caller_identity().account_id
 region = aws.get_region().region
 
-bucket = aws.s3.Bucket("bucket", bucket=f"fda-{account}-euc1")
-aws.s3.BucketPublicAccessBlock(
-    "bucket-public-access",
-    bucket=bucket.id,
-    block_public_acls=True,
-    block_public_policy=True,
-    ignore_public_acls=True,
-    restrict_public_buckets=True,
-)
-aws.s3.BucketServerSideEncryptionConfiguration(
-    "bucket-encryption",
-    bucket=bucket.id,
-    rules=[{"apply_server_side_encryption_by_default": {"sse_algorithm": "AES256"}}],
-)
-aws.s3.BucketLifecycleConfiguration(
-    "bucket-lifecycle",
-    bucket=bucket.id,
-    rules=[
+
+bucket = private_bucket(
+    "bucket",
+    f"fda-{account}-euc1",
+    [
         {
             "id": "expire-raw",
             "status": "Enabled",
@@ -335,24 +342,10 @@ aws.iam.RolePolicy(
     policy=json.dumps(iam.preview_deny()),
 )
 
-trail_bucket = aws.s3.Bucket("trail-bucket", bucket=f"fda-{account}-trail")
-aws.s3.BucketPublicAccessBlock(
-    "trail-bucket-public-access",
-    bucket=trail_bucket.id,
-    block_public_acls=True,
-    block_public_policy=True,
-    ignore_public_acls=True,
-    restrict_public_buckets=True,
-)
-aws.s3.BucketServerSideEncryptionConfiguration(
-    "trail-bucket-encryption",
-    bucket=trail_bucket.id,
-    rules=[{"apply_server_side_encryption_by_default": {"sse_algorithm": "AES256"}}],
-)
-aws.s3.BucketLifecycleConfiguration(
-    "trail-bucket-lifecycle",
-    bucket=trail_bucket.id,
-    rules=[
+trail_bucket = private_bucket(
+    "trail-bucket",
+    f"fda-{account}-trail",
+    [
         {
             "id": "expire-trail",
             "status": "Enabled",
