@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.event_name == 'push' && 'deploy' || github.run_id }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -47,7 +50,6 @@ jobs:
     needs: test
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    concurrency: deploy
     permissions:
       contents: read
       id-token: write

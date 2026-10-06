@@ -10,7 +10,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --no-install-project
 
 COPY src/ src/
-RUN uv sync --locked --no-dev
+RUN uv sync --locked --no-dev --no-editable
 
 RUN useradd --system --no-create-home fda
 USER fda
