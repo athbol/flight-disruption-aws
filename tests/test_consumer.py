@@ -312,6 +312,9 @@ def test_number_too_big_for_dynamodb_is_rejected_and_kept_raw(aws):
         b'{"flight_id": "F9", "sequence": null}',
         b'{"flight_id": "F9", "sequence": true}',
         pytest.param(b"[" * 5000 + b"]" * 5000, id="deep"),
+        b'[{"event_id": "e9", "flight_id": "F9", "sequence": 9}]',
+        b'"F9"',
+        b"9",
     ],
 )
 def test_bad_sequence_or_too_deep_json_is_rejected_and_kept_raw(aws, raw):

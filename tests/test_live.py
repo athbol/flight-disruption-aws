@@ -170,9 +170,9 @@ def test_event_without_an_event_id_is_a_value_error(live_table, change):
     assert live_table.scan()["Items"] == []
 
 
-def test_event_missing_the_event_id_field_is_a_value_error(live_table):
+def test_event_missing_the_event_id_field_is_a_key_error(live_table):
     event = flight(1)
     del event["event_id"]
-    with pytest.raises(ValueError):
+    with pytest.raises(KeyError):
         put_live(live_table, "flights", event)
     assert live_table.scan()["Items"] == []
