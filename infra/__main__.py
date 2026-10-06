@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import catalog
+import dashboard
 import iam
 import pulumi
 import pulumi_aws as aws
@@ -207,6 +208,59 @@ for query in NAMED_QUERIES:
 
 alerts = aws.sns.Topic("alerts", name="fda-alerts")
 aws.sns.TopicSubscription("alerts-email", topic=alerts.arn, protocol="email", endpoint=alert_email)
+
+heartbeat_alarm = aws.cloudwatch.MetricAlarm(
+    "heartbeat-missing",
+    name="fda-heartbeat-missing",
+    namespace="FlightDisruption",
+    metric_name="Heartbeat",
+    statistic="Sum",
+    period=300,
+    evaluation_periods=2,
+    threshold=1,
+    comparison_operator="LessThanThreshold",
+    treat_missing_data="breaching",
+    alarm_actions=[alerts.arn],
+    ok_actions=[alerts.arn],
+)
+throttle_alarm = aws.cloudwatch.MetricAlarm(
+    "dynamodb-throttles",
+    name="fda-dynamodb-throttles",
+    namespace="AWS/DynamoDB",
+    metric_name="ThrottledRequests",
+    dimensions={"TableName": table.name, "Operation": "PutItem"},
+    statistic="Sum",
+    period=300,
+    evaluation_periods=1,
+    threshold=0,
+    comparison_operator="GreaterThanThreshold",
+    treat_missing_data="notBreaching",
+    alarm_actions=[alerts.arn],
+)
+glue_failed = aws.cloudwatch.EventRule(
+    "glue-failed",
+    name="fda-glue-failed",
+    event_pattern=json.dumps(
+        {
+            "source": ["aws.glue"],
+            "detail-type": ["Glue Job State Change"],
+            "detail": {"jobName": ["fda-curate"], "state": ["FAILED", "TIMEOUT", "ERROR"]},
+        }
+    ),
+)
+aws.cloudwatch.EventTarget("glue-failed-email", rule=glue_failed.name, arn=alerts.arn)
+aws.sns.TopicPolicy(
+    "alerts-publish",
+    arn=alerts.arn,
+    policy=pulumi.Output.all(
+        alerts.arn, glue_failed.arn, heartbeat_alarm.arn, throttle_alarm.arn
+    ).apply(lambda arns: json.dumps(iam.alerts_publish(arns[0], arns[1], arns[2:]))),
+)
+aws.cloudwatch.Dashboard(
+    "dashboard",
+    dashboard_name="fda",
+    dashboard_body=table.name.apply(lambda name: json.dumps(dashboard.dashboard(region, name))),
+)
 
 aws.budgets.Budget(
     "monthly",
