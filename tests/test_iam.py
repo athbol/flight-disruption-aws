@@ -5,8 +5,8 @@ REGION = "eu-central-1"
 VPS_IP = "203.0.113.7"
 TABLE_ARN = f"arn:aws:dynamodb:{REGION}:{ACCOUNT}:table/fda-live"
 BUCKET_ARN = "arn:aws:s3:::fda-bucket"
-REPO = "athbol/flight-disruption-aws"
-SUB = f"repo:{REPO}:ref:refs/heads/main"
+SUBJECT = "repo:athbol@32675046/flight-disruption-aws@1406409508"
+SUB = f"{SUBJECT}:ref:refs/heads/main"
 OIDC_ARN = f"arn:aws:iam::{ACCOUNT}:oidc-provider/token.actions.githubusercontent.com"
 
 
@@ -105,16 +105,27 @@ def test_glue_has_no_iam_or_s3_wildcard_actions():
     assert "s3:*" not in found
 
 
+def test_github_sub_pins_owner_and_repo_ids():
+    assert iam.github_sub("ref:refs/heads/main") == f"{SUBJECT}:ref:refs/heads/main"
+    assert iam.github_sub("pull_request") == f"{SUBJECT}:pull_request"
+
+
+def test_github_subs_have_no_wildcards():
+    for ref in ("ref:refs/heads/main", "pull_request"):
+        assert "*" not in iam.github_sub(ref)
+
+
 def test_github_trust_pins_sub_aud_and_provider():
-    trust = iam.github_trust(ACCOUNT, REPO, SUB)
+    trust = iam.github_trust(ACCOUNT, SUB)
     [statement] = trust["Statement"]
     assert statement["Action"] == "sts:AssumeRoleWithWebIdentity"
     assert statement["Principal"] == {"Federated": OIDC_ARN}
-    condition = statement["Condition"]
-    assert condition["StringLike"]["token.actions.githubusercontent.com:sub"] == SUB
-    assert condition["StringEquals"]["token.actions.githubusercontent.com:aud"] == (
-        "sts.amazonaws.com"
-    )
+    assert statement["Condition"] == {
+        "StringEquals": {
+            "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+            "token.actions.githubusercontent.com:sub": SUB,
+        }
+    }
 
 
 def test_deploy_iam_resources_are_all_fda_scoped():
