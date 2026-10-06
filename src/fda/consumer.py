@@ -8,6 +8,7 @@ import boto3
 from confluent_kafka import KafkaException
 
 from fda import schemas
+from fda.generator import create_topics
 from fda.live import TABLE_NAME, put_live
 from fda.raw import objects, should_flush
 
@@ -59,7 +60,7 @@ def heartbeat(cloudwatch, counts):
 
 
 def run(consumer, table, s3, cloudwatch, bucket, stop, clock=time.monotonic):
-    consumer.subscribe(TOPICS)
+    consumer.subscribe(list(TOPICS))
     buffer = []
     counts = Counter({(topic, metric): 0 for topic in TOPICS for metric in (WRITTEN, STALE)})
     last_flush = last_beat = clock()
@@ -83,9 +84,11 @@ def main():
     from confluent_kafka import Consumer
 
     bucket = os.environ["RAW_BUCKET"]
+    bootstrap = os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092")
+    create_topics(bootstrap)
     consumer = Consumer(
         {
-            "bootstrap.servers": os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092"),
+            "bootstrap.servers": bootstrap,
             "group.id": GROUP_ID,
             "enable.auto.commit": False,
             "auto.offset.reset": "earliest",

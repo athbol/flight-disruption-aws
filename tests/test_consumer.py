@@ -87,9 +87,13 @@ def fake_consumer(messages, s3=None, tick=lambda: None):
         assert asynchronous is False
         consumer.commits.append(bucket_keys(s3) if s3 else [])
 
+    def subscribe(topics):
+        assert isinstance(topics, list)
+        consumer.subscribed.append(topics)
+
     consumer.poll = poll
     consumer.commit = commit
-    consumer.subscribe = consumer.subscribed.append
+    consumer.subscribe = subscribe
     consumer.close = lambda: consumer.closed.append(True)
     return consumer
 
@@ -180,7 +184,7 @@ def test_stop_flushes_and_commits(aws):
     assert len(consumer.commits) == 1
     assert len(bucket_keys(aws.s3)) == 1
     assert consumer.closed == [True]
-    assert consumer.subscribed == [("flights", "bookings", "tickets")]
+    assert consumer.subscribed == [["flights", "bookings", "tickets"]]
 
 
 def test_flush_waits_a_full_interval_again(aws):
