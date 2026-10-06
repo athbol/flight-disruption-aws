@@ -1,3 +1,23 @@
+x-logging: &logging
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-app: &app
+  build: .
+  image: flight-disruption-aws
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 256
+  read_only: true
+  tmpfs: [/tmp]
+  restart: unless-stopped
+  depends_on:
+    kafka:
+      condition: service_healthy
+  logging: *logging
+
 services:
   kafka:
     image: apache/kafka:4.3.1@sha256:77e3df9054047a88b520d0cc46e16696d3b22022e1d580aeccd2632df6532837
@@ -32,53 +52,21 @@ services:
       timeout: 10s
       retries: 10
       start_period: 30s
-    logging:
-      driver: local
-      options:
-        max-size: "10m"
-        max-file: "3"
+    logging: *logging
 
   generator:
-    build: .
+    <<: *app
     command: python -m fda.generator
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    pids_limit: 256
-    read_only: true
-    tmpfs: [/tmp]
-    restart: unless-stopped
-    depends_on:
-      kafka:
-        condition: service_healthy
     mem_limit: 128m
-    logging:
-      driver: local
-      options:
-        max-size: "10m"
-        max-file: "3"
 
   consumer:
-    build: .
+    <<: *app
     command: python -m fda.consumer
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    pids_limit: 256
-    read_only: true
-    tmpfs: [/tmp]
-    restart: unless-stopped
-    depends_on:
-      kafka:
-        condition: service_healthy
     env_file: .env
     environment:
       AWS_DEFAULT_REGION: eu-central-1
     mem_limit: 256m
     stop_grace_period: 30s
-    logging:
-      driver: local
-      options:
-        max-size: "10m"
-        max-file: "3"
 
 volumes:
   kafka-data:
