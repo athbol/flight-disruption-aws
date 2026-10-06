@@ -1,3 +1,5 @@
+from fnmatch import fnmatchcase
+
 import iam
 
 ACCOUNT = "123456789012"
@@ -160,8 +162,7 @@ def test_deploy_can_pass_only_fda_roles():
 
 def test_deploy_cannot_change_its_own_roles_or_the_oidc_provider():
     policy = iam.deploy_policy(ACCOUNT)
-    denies = [s for s in policy["Statement"] if s["Effect"] == "Deny"]
-    [deny] = denies
+    [deny] = [s for s in policy["Statement"] if OIDC_ARN in resources(s) and s["Effect"] == "Deny"]
     assert set(actions(deny)) == {
         "iam:Update*",
         "iam:Put*",
@@ -175,6 +176,86 @@ def test_deploy_cannot_change_its_own_roles_or_the_oidc_provider():
     ]
     assert gha_roles == [f"arn:aws:iam::{ACCOUNT}:role/fda-gha-*"]
     assert OIDC_ARN in resources(deny)
+
+
+BOUNDARY_ARN = f"arn:aws:iam::{ACCOUNT}:policy/fda-boundary"
+
+
+def denied(policy, action, resource):
+    return any(
+        statement["Effect"] == "Deny"
+        and action in actions(statement)
+        and resource in resources(statement)
+        for statement in policy["Statement"]
+    )
+
+
+GRANTING = (
+    "iam:CreateRole",
+    "iam:CreateUser",
+    "iam:PutRolePolicy",
+    "iam:PutUserPolicy",
+    "iam:AttachRolePolicy",
+    "iam:AttachUserPolicy",
+    "iam:PutRolePermissionsBoundary",
+    "iam:PutUserPermissionsBoundary",
+)
+
+
+def test_deploy_creates_and_grants_identities_only_with_the_boundary():
+    policy = iam.deploy_policy(ACCOUNT)
+    condition = {"StringEquals": {"iam:PermissionsBoundary": BOUNDARY_ARN}}
+    for statement in policy["Statement"]:
+        if statement["Effect"] != "Allow" or statement.get("Condition") == condition:
+            continue
+        for pattern in actions(statement):
+            for action in GRANTING:
+                assert not fnmatchcase(action, pattern), (pattern, action)
+    assert not any("iam:*" in actions(s) for s in policy["Statement"] if s["Effect"] == "Allow")
+
+
+def test_deploy_cannot_remove_boundaries_or_change_the_boundary_policy():
+    policy = iam.deploy_policy(ACCOUNT)
+    assert denied(policy, "iam:DeleteRolePermissionsBoundary", "*")
+    assert denied(policy, "iam:DeleteUserPermissionsBoundary", "*")
+    for action in ("iam:CreatePolicyVersion", "iam:DeletePolicy", "iam:SetDefaultPolicyVersion"):
+        matching = [
+            s for s in policy["Statement"] if s["Effect"] == "Deny" and BOUNDARY_ARN in resources(s)
+        ]
+        assert any(
+            action.startswith(pattern.rstrip("*")) for s in matching for pattern in actions(s)
+        ), action
+
+
+def test_deploy_cannot_stop_the_trail_or_change_the_budget():
+    policy = iam.deploy_policy(ACCOUNT)
+    for action in (
+        "cloudtrail:StopLogging",
+        "cloudtrail:DeleteTrail",
+        "cloudtrail:UpdateTrail",
+        "cloudtrail:PutEventSelectors",
+        "cloudtrail:PutInsightSelectors",
+        "budgets:ModifyBudget",
+        "budgets:DeleteBudget",
+    ):
+        assert denied(policy, action, "*"), action
+
+
+def test_boundary_allows_only_the_data_services_and_no_identity_actions():
+    boundary = iam.boundary_policy()
+    assert all(statement["Effect"] == "Allow" for statement in boundary["Statement"])
+    assert all_resources(boundary) == {"*"}
+    assert all_actions(boundary) == {
+        "s3:*",
+        "dynamodb:*",
+        "glue:*",
+        "athena:*",
+        "logs:*",
+        "cloudwatch:*",
+        "events:*",
+        "sns:*",
+    }
+    assert not any(action.startswith(("iam:", "sts:")) for action in all_actions(boundary))
 
 
 def alerts():
@@ -204,3 +285,61 @@ def test_alerts_cloudwatch_publishes_only_from_our_alarms():
 def test_alerts_statements_have_unique_sids():
     sids = [statement.get("Sid") for statement in alerts()["Statement"]]
     assert sids == ["EventsPublish", "AlarmsPublish"]
+
+
+def test_glue_trust_only_for_glue_in_our_account():
+    [statement] = iam.glue_trust(ACCOUNT)["Statement"]
+    assert statement["Principal"] == {"Service": "glue.amazonaws.com"}
+    assert statement["Action"] == "sts:AssumeRole"
+    assert statement["Condition"] == {"StringEquals": {"aws:SourceAccount": ACCOUNT}}
+
+
+def test_preview_cannot_read_data_logs_or_secrets():
+    preview = iam.preview_deny()
+    assert {statement["Effect"] for statement in preview["Statement"]} == {"Deny"}
+    assert all_resources(preview) == {"*"}
+    assert all_actions(preview) == {
+        "s3:GetObject",
+        "dynamodb:GetItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:BatchGetItem",
+        "athena:GetQueryResults",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents",
+        "ssm:GetParameter*",
+        "secretsmanager:GetSecretValue",
+        "s3:GetObjectVersion",
+        "dynamodb:PartiQLSelect",
+        "logs:StartQuery",
+        "logs:GetQueryResults",
+        "logs:StartLiveTail",
+        "logs:GetLogRecord",
+    }
+
+
+def test_bucket_refuses_requests_without_tls():
+    [statement] = iam.tls_only(BUCKET_ARN)["Statement"]
+    assert statement["Effect"] == "Deny"
+    assert statement["Principal"] == "*"
+    assert actions(statement) == ["s3:*"]
+    assert set(resources(statement)) == {BUCKET_ARN, f"{BUCKET_ARN}/*"}
+    assert statement["Condition"] == {"Bool": {"aws:SecureTransport": "false"}}
+
+
+TRAIL_BUCKET_ARN = "arn:aws:s3:::fda-trail"
+TRAIL_ARN = f"arn:aws:cloudtrail:{REGION}:{ACCOUNT}:trail/fda"
+
+
+def test_trail_bucket_takes_only_our_trail_writes():
+    trail = iam.trail_bucket_policy(TRAIL_BUCKET_ARN, TRAIL_ARN, ACCOUNT)
+    acl_check, write = trail["Statement"]
+    for statement in (acl_check, write):
+        assert statement["Effect"] == "Allow"
+        assert statement["Principal"] == {"Service": "cloudtrail.amazonaws.com"}
+        assert statement["Condition"]["StringEquals"]["aws:SourceArn"] == TRAIL_ARN
+    assert actions(acl_check) == ["s3:GetBucketAcl"]
+    assert resources(acl_check) == [TRAIL_BUCKET_ARN]
+    assert actions(write) == ["s3:PutObject"]
+    assert resources(write) == [f"{TRAIL_BUCKET_ARN}/AWSLogs/{ACCOUNT}/*"]
+    assert write["Condition"]["StringEquals"]["s3:x-amz-acl"] == "bucket-owner-full-control"

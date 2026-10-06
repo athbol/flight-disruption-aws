@@ -74,6 +74,19 @@ def glue_policy(bucket_arn, region, account):
     )
 
 
+def glue_trust(account):
+    return policy(
+        [
+            {
+                "Effect": "Allow",
+                "Principal": {"Service": "glue.amazonaws.com"},
+                "Action": "sts:AssumeRole",
+                "Condition": {"StringEquals": {"aws:SourceAccount": account}},
+            }
+        ]
+    )
+
+
 def github_sub(ref):
     return f"repo:{GITHUB_OWNER}@{GITHUB_OWNER_ID}/{GITHUB_REPO}@{GITHUB_REPO_ID}:{ref}"
 
@@ -96,18 +109,50 @@ def github_trust(account, sub):
     )
 
 
+def boundary_policy():
+    services = ("s3", "dynamodb", "glue", "athena", "logs", "cloudwatch", "events", "sns")
+    return policy([allow([f"{service}:*" for service in services], ["*"])])
+
+
 def deploy_policy(account):
     iam = f"arn:aws:iam::{account}"
+    fda = [
+        f"{iam}:role/fda-*",
+        f"{iam}:user/fda-*",
+        f"{iam}:policy/fda-*",
+        f"{iam}:instance-profile/fda-*",
+    ]
+    boundary = {"StringEquals": {"iam:PermissionsBoundary": f"{iam}:policy/fda-boundary"}}
     return policy(
         [
             allow(
-                ["iam:*"],
                 [
-                    f"{iam}:role/fda-*",
-                    f"{iam}:user/fda-*",
-                    f"{iam}:policy/fda-*",
-                    f"{iam}:instance-profile/fda-*",
+                    "iam:CreateRole",
+                    "iam:CreateUser",
+                    "iam:PutRolePolicy",
+                    "iam:PutUserPolicy",
+                    "iam:AttachRolePolicy",
+                    "iam:AttachUserPolicy",
+                    "iam:PutRolePermissionsBoundary",
+                    "iam:PutUserPermissionsBoundary",
                 ],
+                fda,
+                boundary,
+            ),
+            allow(
+                [
+                    "iam:Get*",
+                    "iam:List*",
+                    "iam:Delete*",
+                    "iam:Detach*",
+                    "iam:Tag*",
+                    "iam:Untag*",
+                    "iam:Update*",
+                    "iam:CreateAccessKey",
+                    "iam:CreatePolicy",
+                    "iam:CreatePolicyVersion",
+                ],
+                fda,
             ),
             allow(
                 ["iam:GetOpenIDConnectProvider", "iam:TagOpenIDConnectProvider"],
@@ -124,6 +169,81 @@ def deploy_policy(account):
                     "iam:Create*",
                 ],
                 [f"{iam}:role/fda-gha-*", oidc_provider_arn(account)],
+            ),
+            deny(["iam:DeleteRolePermissionsBoundary", "iam:DeleteUserPermissionsBoundary"], ["*"]),
+            deny(
+                [
+                    "iam:Create*",
+                    "iam:Delete*",
+                    "iam:Set*",
+                    "iam:Tag*",
+                    "iam:Untag*",
+                ],
+                [f"{iam}:policy/fda-boundary"],
+            ),
+            deny(
+                [
+                    "cloudtrail:StopLogging",
+                    "cloudtrail:DeleteTrail",
+                    "cloudtrail:UpdateTrail",
+                    "cloudtrail:PutEventSelectors",
+                    "cloudtrail:PutInsightSelectors",
+                    "budgets:ModifyBudget",
+                    "budgets:DeleteBudget",
+                ],
+                ["*"],
+            ),
+        ]
+    )
+
+
+def preview_deny():
+    return policy(
+        [
+            deny(
+                [
+                    "s3:GetObject",
+                    "dynamodb:GetItem",
+                    "dynamodb:Query",
+                    "dynamodb:Scan",
+                    "dynamodb:BatchGetItem",
+                    "athena:GetQueryResults",
+                    "logs:GetLogEvents",
+                    "logs:FilterLogEvents",
+                    "ssm:GetParameter*",
+                    "secretsmanager:GetSecretValue",
+                    "s3:GetObjectVersion",
+                    "dynamodb:PartiQLSelect",
+                    "logs:StartQuery",
+                    "logs:GetQueryResults",
+                    "logs:StartLiveTail",
+                    "logs:GetLogRecord",
+                ],
+                ["*"],
+            )
+        ]
+    )
+
+
+def tls_only(bucket_arn):
+    statement = deny(["s3:*"], [bucket_arn, f"{bucket_arn}/*"])
+    condition = {"Bool": {"aws:SecureTransport": "false"}}
+    return policy([{"Principal": "*"} | statement | {"Condition": condition}])
+
+
+def trail_bucket_policy(bucket_arn, trail_arn, account):
+    trail = {"Service": "cloudtrail.amazonaws.com"}
+    from_trail = {"aws:SourceArn": trail_arn}
+    owner = {"s3:x-amz-acl": "bucket-owner-full-control"}
+    return policy(
+        [
+            {"Principal": trail}
+            | allow(["s3:GetBucketAcl"], [bucket_arn], {"StringEquals": from_trail}),
+            {"Principal": trail}
+            | allow(
+                ["s3:PutObject"],
+                [f"{bucket_arn}/AWSLogs/{account}/*"],
+                {"StringEquals": from_trail | owner},
             ),
         ]
     )
