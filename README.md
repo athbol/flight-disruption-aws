@@ -23,16 +23,29 @@ Pulumi describes all of it in `infra/`. A push to `main` runs `pulumi up` throug
 
 Screenshots from the live system, in the order the data flows.
 
-1. ![compose ps on the VPS](docs/screenshots/01-compose-up.png) The three containers on the VPS. Kafka is healthy.
-2. ![A DynamoDB item](docs/screenshots/02-dynamodb-item.png) One booking in the live table.
-3. ![S3 raw prefix](docs/screenshots/03-s3-raw.png) Raw archive, one object per flush.
-4. ![Glue job run](docs/screenshots/04-glue-run.png) The daily job, succeeded.
-5. ![Athena query](docs/screenshots/05-athena-query.png) The curated `flights` table queried in Athena on the first day: six flights so far, one of them delayed.
-6. ![CloudWatch dashboard](docs/screenshots/06-cloudwatch-dashboard.png) Heartbeat, events written and stale events skipped.
+<table>
+<tr>
+<td width="50%">1. The three containers on the VPS. Kafka is healthy.<br><img src="docs/screenshots/01-compose-up.png" alt="docker compose ps on the VPS"></td>
+<td width="50%">2. One booking in the live table.<br><img src="docs/screenshots/02-dynamodb-item.png" alt="A DynamoDB item"></td>
+</tr>
+<tr>
+<td width="50%">3. Raw archive, one object per flush.<br><img src="docs/screenshots/03-s3-raw.png" alt="S3 raw prefix"></td>
+<td width="50%">4. The daily job, succeeded.<br><img src="docs/screenshots/04-glue-run.png" alt="Glue job run"></td>
+</tr>
+<tr>
+<td width="50%">5. The curated <code>flights</code> table queried in Athena on the first day: six flights so far, one of them delayed.<br><img src="docs/screenshots/05-athena-query.png" alt="Athena query"></td>
+<td width="50%">6. Heartbeat, events written and stale events skipped.<br><img src="docs/screenshots/06-cloudwatch-dashboard.png" alt="CloudWatch dashboard"></td>
+</tr>
 <!-- 07-alarm-email.png is added with the passenger example on 2026-10-07 -->
-8. ![GitHub Actions](docs/screenshots/08-github-actions-green.png) Every push to main runs the tests and then `pulumi up`.
-9. ![Pulumi up in CI](docs/screenshots/09-pulumi-up.png) The Pulumi step of that deploy: one resource changed, 48 unchanged.
-10. ![Budget](docs/screenshots/10-budget.png) The 1 USD monthly budget.
+<tr>
+<td width="50%">8. Every push to main runs the tests and then <code>pulumi up</code>.<br><img src="docs/screenshots/08-github-actions-green.png" alt="GitHub Actions"></td>
+<td width="50%">9. The Pulumi step of that deploy: one resource changed, 48 unchanged.<br><img src="docs/screenshots/09-pulumi-up.png" alt="Pulumi up in CI"></td>
+</tr>
+<tr>
+<td width="50%">10. The 1 USD monthly budget.<br><img src="docs/screenshots/10-budget.png" alt="Budget"></td>
+<td width="50%"></td>
+</tr>
+</table>
 
 ## One passenger, two stores
 
