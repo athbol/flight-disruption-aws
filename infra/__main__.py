@@ -10,7 +10,7 @@ GITHUB_OIDC_URL = "https://token.actions.githubusercontent.com"
 GITHUB_THUMBPRINT = "6938fd4d98bab03faadb97b34396831e3780aea1"
 FDA_MODULES = ("__init__.py", "schemas.py", "curate.py")
 HIVE_PARQUET = "org.apache.hadoop.hive.ql.io.parquet"
-NAMED_QUERIES = ("disruptions_last_3_days", "passenger_journey", "delayed_flights_today")
+NAMED_QUERIES = ("disruptions_last_3_days", "passenger_journey", "delayed_flights_yesterday")
 
 config = pulumi.Config("fda")
 vps_ip = config.require("vps_ip")
