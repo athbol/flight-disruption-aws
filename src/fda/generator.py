@@ -57,21 +57,16 @@ def plan_day(seed: str, day: date) -> list[dict]:
     rng = random.Random(f"{seed}:{day}")
     start = midnight(day)
     cancelled_at = start + CANCELLATION_NOTICE
-    flights = [new_flight(day, number) for number in range(FLIGHTS_PER_DAY)]
-    outcomes = [draw_outcome(rng) for _ in flights]
-    cancelled = {
-        flight["flight_id"]
-        for flight, (outcome, _) in zip(flights, outcomes, strict=True)
-        if outcome == "cancelled"
-    }
+    flights = [(new_flight(day, number), draw_outcome(rng)) for number in range(FLIGHTS_PER_DAY)]
+    cancelled = {flight["flight_id"] for flight, (outcome, _) in flights if outcome == "cancelled"}
     emissions = []
-    for number, (flight, (outcome, delay)) in enumerate(zip(flights, outcomes, strict=True)):
+    for number, (flight, (outcome, delay)) in enumerate(flights):
         hold = draw_hold(rng) if outcome == "cancelled" else timedelta(0)
         changes = flight_changes(start, cancelled_at, flight, outcome, delay)
         emissions += entity_emissions(rng, seed, "flights", flight["flight_id"], changes, hold)
         alternatives = [
             other["flight_id"]
-            for other in flights
+            for other, _ in flights
             if (other["origin"], other["destination"]) == (flight["origin"], flight["destination"])
             and other["flight_id"] not in cancelled
         ]

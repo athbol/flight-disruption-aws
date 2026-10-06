@@ -12,7 +12,7 @@ from fda.live import TABLE_NAME, put_live
 from fda.raw import objects, should_flush
 from fda.topics import BOOTSTRAP, create_topics
 
-TOPICS = tuple(schemas.TOPICS)
+TOPICS = list(schemas.TOPICS)
 GROUP_ID = "fda-consumer"
 HEARTBEAT_SECONDS = 60
 METRIC_NAMESPACE = "FlightDisruption"
@@ -67,7 +67,7 @@ def heartbeat(cloudwatch, counts):
 
 
 def run(consumer, table, s3, cloudwatch, bucket, stop, clock=time.monotonic):
-    consumer.subscribe(list(TOPICS))
+    consumer.subscribe(TOPICS)
     buffer = []
     counts = Counter(
         {(topic, metric): 0 for topic in TOPICS for metric in (WRITTEN, STALE, REJECTED)}
