@@ -151,10 +151,10 @@ Verify: an ALARM email arrives within about 10 minutes of the stop, and an OK em
 
 ### Test the Glue failure rule
 
-Point the job at a bucket it cannot read.
+Pass a run date that is not a date. The job fails while parsing it, before it reads anything from S3.
 
 ```sh
-aws glue start-job-run --job-name fda-curate --arguments '{"--RAW_ROOT":"s3://nope/raw"}'
+aws glue start-job-run --job-name fda-curate --arguments '{"--RUN_DATE":"not-a-date"}'
 ```
 
 Verify: `aws glue get-job-runs --job-name fda-curate --max-items 1 --query 'JobRuns[0].JobRunState'` shows `FAILED` and a Glue Job State Change email arrives within minutes.
