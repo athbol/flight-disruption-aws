@@ -73,7 +73,7 @@ def test_consumer_wildcard_resource_is_only_metrics_in_our_namespace():
 def test_consumer_actions_are_exactly_these_per_resource():
     granted = {tuple(resources(s)): set(actions(s)) for s in consumer()["Statement"]}
     assert granted == {
-        (TABLE_ARN,): {"dynamodb:PutItem", "dynamodb:Query", "dynamodb:BatchGetItem"},
+        (TABLE_ARN,): {"dynamodb:PutItem", "dynamodb:Query"},
         (f"{BUCKET_ARN}/raw/*",): {"s3:PutObject"},
         ("*",): {"cloudwatch:PutMetricData"},
     }
@@ -87,15 +87,13 @@ def test_glue_cannot_write_raw_or_artifacts():
             assert f"{BUCKET_ARN}/artifacts/*" not in resources(statement)
 
 
-def test_glue_writes_exactly_curated_and_its_folder_marker():
+def test_glue_writes_only_under_keys_starting_with_curated():
     writes = [
         set(resources(statement))
         for statement in glue()["Statement"]
         if {"s3:PutObject", "s3:DeleteObject"} & set(actions(statement))
     ]
-    assert writes == [
-        {BUCKET_ARN, f"{BUCKET_ARN}/curated/*", f"{BUCKET_ARN}/curated_$folder$"},
-    ]
+    assert writes == [{BUCKET_ARN, f"{BUCKET_ARN}/curated*"}]
 
 
 def test_glue_resources_stay_inside_bucket_logs_and_fda_catalog():
@@ -218,10 +216,10 @@ def test_deploy_cannot_remove_boundaries_or_change_the_boundary_policy():
     policy = iam.deploy_policy(ACCOUNT)
     assert denied(policy, "iam:DeleteRolePermissionsBoundary", "*")
     assert denied(policy, "iam:DeleteUserPermissionsBoundary", "*")
+    matching = [
+        s for s in policy["Statement"] if s["Effect"] == "Deny" and BOUNDARY_ARN in resources(s)
+    ]
     for action in ("iam:CreatePolicyVersion", "iam:DeletePolicy", "iam:SetDefaultPolicyVersion"):
-        matching = [
-            s for s in policy["Statement"] if s["Effect"] == "Deny" and BOUNDARY_ARN in resources(s)
-        ]
         assert any(
             action.startswith(pattern.rstrip("*")) for s in matching for pattern in actions(s)
         ), action

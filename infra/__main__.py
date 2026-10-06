@@ -8,12 +8,33 @@ import pulumi
 import pulumi_aws as aws
 
 from fda.consumer import HEARTBEAT, METRIC_NAMESPACE
+from fda.live import TABLE_NAME
+from fda.raw import RAW_PREFIX
+from fda.schemas import CURATED, PARTITION_KEY
 
-GITHUB_OIDC_URL = "https://token.actions.githubusercontent.com"
 GITHUB_THUMBPRINT = "6938fd4d98bab03faadb97b34396831e3780aea1"
-FDA_MODULES = ("__init__.py", "schemas.py", "curate.py")
 HIVE_PARQUET = "org.apache.hadoop.hive.ql.io.parquet"
 NAMED_QUERIES = ("disruptions_last_3_days", "passenger_journey", "delayed_flights_yesterday")
+
+
+def private_bucket(name, bucket_name, rules):
+    bucket = aws.s3.Bucket(name, bucket=bucket_name)
+    aws.s3.BucketPublicAccessBlock(
+        f"{name}-public-access",
+        bucket=bucket.id,
+        block_public_acls=True,
+        block_public_policy=True,
+        ignore_public_acls=True,
+        restrict_public_buckets=True,
+    )
+    aws.s3.BucketServerSideEncryptionConfiguration(
+        f"{name}-encryption",
+        bucket=bucket.id,
+        rules=[{"apply_server_side_encryption_by_default": {"sse_algorithm": "AES256"}}],
+    )
+    aws.s3.BucketLifecycleConfiguration(f"{name}-lifecycle", bucket=bucket.id, rules=rules)
+    return bucket
+
 
 config = pulumi.Config("fda")
 vps_ip = config.require_secret("vps_ip")
@@ -21,28 +42,15 @@ alert_email = config.require_secret("alert_email")
 account = aws.get_caller_identity().account_id
 region = aws.get_region().region
 
-bucket = aws.s3.Bucket("bucket", bucket=f"fda-{account}-euc1")
-aws.s3.BucketPublicAccessBlock(
-    "bucket-public-access",
-    bucket=bucket.id,
-    block_public_acls=True,
-    block_public_policy=True,
-    ignore_public_acls=True,
-    restrict_public_buckets=True,
-)
-aws.s3.BucketServerSideEncryptionConfiguration(
-    "bucket-encryption",
-    bucket=bucket.id,
-    rules=[{"apply_server_side_encryption_by_default": {"sse_algorithm": "AES256"}}],
-)
-aws.s3.BucketLifecycleConfiguration(
-    "bucket-lifecycle",
-    bucket=bucket.id,
-    rules=[
+
+bucket = private_bucket(
+    "bucket",
+    f"fda-{account}-euc1",
+    [
         {
             "id": "expire-raw",
             "status": "Enabled",
-            "filter": {"prefix": "raw/"},
+            "filter": {"prefix": f"{RAW_PREFIX}/"},
             "expiration": {"days": 30},
         },
         {
@@ -67,7 +75,7 @@ aws.s3.BucketPolicy(
 
 table = aws.dynamodb.Table(
     "live",
-    name="fda-live",
+    name=TABLE_NAME,
     hash_key="pk",
     range_key="sk",
     attributes=[{"name": "pk", "type": "S"}, {"name": "sk", "type": "S"}],
@@ -113,7 +121,10 @@ glue_package = aws.s3.BucketObject(
     bucket=bucket.id,
     key="artifacts/glue/fda.zip",
     source=pulumi.AssetArchive(
-        {f"fda/{module}": pulumi.FileAsset(f"../src/fda/{module}") for module in FDA_MODULES}
+        {
+            f"fda/{path.name}": pulumi.FileAsset(path)
+            for path in sorted(Path("../src/fda").glob("*.py"))
+        }
     ),
 )
 glue_logs = [
@@ -122,7 +133,7 @@ glue_logs = [
 ]
 curate_job = aws.glue.Job(
     "curate",
-    name="fda-curate",
+    name=dashboard.CURATE_JOB,
     role_arn=glue_role.arn,
     glue_version="5.0",
     worker_type="G.1X",
@@ -137,7 +148,7 @@ curate_job = aws.glue.Job(
     },
     default_arguments={
         "--extra-py-files": pulumi.Output.format("s3://{0}/{1}", bucket.bucket, glue_package.key),
-        "--RAW_ROOT": pulumi.Output.format("s3://{0}/raw", bucket.bucket),
+        "--RAW_ROOT": pulumi.Output.format("s3://{0}/{1}", bucket.bucket, RAW_PREFIX),
         "--CURATED_ROOT": pulumi.Output.format("s3://{0}/curated", bucket.bucket),
         "--RUN_DATE": "today",
         "--job-language": "python",
@@ -154,7 +165,7 @@ aws.glue.Trigger(
 )
 
 database = aws.glue.CatalogDatabase("catalog", name="fda")
-for name in ("journeys", "flights"):
+for name in CURATED:
     location = pulumi.Output.format("s3://{0}/curated/{1}/", bucket.bucket, name)
     aws.glue.CatalogTable(
         name,
@@ -172,13 +183,13 @@ for name in ("journeys", "flights"):
         parameters={
             "classification": "parquet",
             "projection.enabled": "true",
-            "projection.flight_date.type": "date",
-            "projection.flight_date.format": "yyyy-MM-dd",
-            "projection.flight_date.range": "2026-10-01,NOW",
-            "projection.flight_date.interval": "1",
-            "projection.flight_date.interval.unit": "DAYS",
+            f"projection.{PARTITION_KEY}.type": "date",
+            f"projection.{PARTITION_KEY}.format": "yyyy-MM-dd",
+            f"projection.{PARTITION_KEY}.range": "2026-10-01,NOW",
+            f"projection.{PARTITION_KEY}.interval": "1",
+            f"projection.{PARTITION_KEY}.interval.unit": "DAYS",
             "storage.location.template": pulumi.Output.format(
-                "{0}flight_date=${{flight_date}}", location
+                "{0}{1}=${{{1}}}", location, PARTITION_KEY
             ),
         },
     )
@@ -210,7 +221,7 @@ aws.sns.TopicSubscription("alerts-email", topic=alerts.arn, protocol="email", en
 
 heartbeat_alarm = aws.cloudwatch.MetricAlarm(
     "heartbeat-missing",
-    name="fda-heartbeat-missing",
+    name=dashboard.HEARTBEAT_ALARM,
     alarm_description="The consumer stopped publishing. Check docker compose ps on the VPS.",
     namespace=METRIC_NAMESPACE,
     metric_name=HEARTBEAT,
@@ -225,7 +236,7 @@ heartbeat_alarm = aws.cloudwatch.MetricAlarm(
 )
 throttle_alarm = aws.cloudwatch.MetricAlarm(
     "dynamodb-throttles",
-    name="fda-dynamodb-throttles",
+    name=dashboard.THROTTLE_ALARM,
     namespace="AWS/DynamoDB",
     metric_name="WriteThrottleEvents",
     dimensions={"TableName": table.name},
@@ -239,12 +250,12 @@ throttle_alarm = aws.cloudwatch.MetricAlarm(
 )
 glue_failed = aws.cloudwatch.EventRule(
     "glue-failed",
-    name="fda-glue-failed",
+    name=dashboard.GLUE_RULE,
     event_pattern=json.dumps(
         {
             "source": ["aws.glue"],
             "detail-type": ["Glue Job State Change"],
-            "detail": {"jobName": ["fda-curate"], "state": ["FAILED", "TIMEOUT", "ERROR"]},
+            "detail": {"jobName": [dashboard.CURATE_JOB], "state": ["FAILED", "TIMEOUT", "ERROR"]},
         }
     ),
 )
@@ -295,7 +306,7 @@ aws.budgets.Budget(
 
 aws.iam.OpenIdConnectProvider(
     "github",
-    url=GITHUB_OIDC_URL,
+    url=f"https://{iam.GITHUB_OIDC_HOST}",
     client_id_lists=["sts.amazonaws.com"],
     thumbprint_lists=[GITHUB_THUMBPRINT],
 )
@@ -333,24 +344,10 @@ aws.iam.RolePolicy(
     policy=json.dumps(iam.preview_deny()),
 )
 
-trail_bucket = aws.s3.Bucket("trail-bucket", bucket=f"fda-{account}-trail")
-aws.s3.BucketPublicAccessBlock(
-    "trail-bucket-public-access",
-    bucket=trail_bucket.id,
-    block_public_acls=True,
-    block_public_policy=True,
-    ignore_public_acls=True,
-    restrict_public_buckets=True,
-)
-aws.s3.BucketServerSideEncryptionConfiguration(
-    "trail-bucket-encryption",
-    bucket=trail_bucket.id,
-    rules=[{"apply_server_side_encryption_by_default": {"sse_algorithm": "AES256"}}],
-)
-aws.s3.BucketLifecycleConfiguration(
-    "trail-bucket-lifecycle",
-    bucket=trail_bucket.id,
-    rules=[
+trail_bucket = private_bucket(
+    "trail-bucket",
+    f"fda-{account}-trail",
+    [
         {
             "id": "expire-trail",
             "status": "Enabled",

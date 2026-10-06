@@ -13,8 +13,8 @@ def dt(timestamp_ms: int) -> str:
 
 
 def key(topic: str, day: str, partition: int, first_offset: int, last_offset: int) -> str:
-    first = str(first_offset).zfill(OFFSET_DIGITS)
-    last = str(last_offset).zfill(OFFSET_DIGITS)
+    first = f"{first_offset:0{OFFSET_DIGITS}d}"
+    last = f"{last_offset:0{OFFSET_DIGITS}d}"
     return f"{RAW_PREFIX}/topic={topic}/dt={day}/{partition}-{first}-{last}.jsonl.gz"
 
 
@@ -38,6 +38,4 @@ def objects(records: list[dict]) -> list[tuple[str, bytes]]:
 
 
 def should_flush(count: int, seconds_since_flush: float) -> bool:
-    if count == 0:
-        return False
-    return count >= FLUSH_RECORDS or seconds_since_flush >= FLUSH_SECONDS
+    return count > 0 and (count >= FLUSH_RECORDS or seconds_since_flush >= FLUSH_SECONDS)

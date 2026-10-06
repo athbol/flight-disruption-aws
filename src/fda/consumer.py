@@ -8,11 +8,11 @@ import boto3
 from confluent_kafka import KafkaException
 
 from fda import schemas
-from fda.generator import create_topics
 from fda.live import TABLE_NAME, put_live
 from fda.raw import objects, should_flush
+from fda.topics import BOOTSTRAP, create_topics
 
-TOPICS = tuple(schemas.TOPICS)
+TOPICS = list(schemas.TOPICS)
 GROUP_ID = "fda-consumer"
 HEARTBEAT_SECONDS = 60
 METRIC_NAMESPACE = "FlightDisruption"
@@ -42,7 +42,7 @@ def handle(table, msg, buffer, counts):
     try:
         written = put_live(table, msg.topic(), json.loads(value))
         counts[(msg.topic(), WRITTEN if written else STALE)] += 1
-    except (ValueError, KeyError, TypeError, ArithmeticError):
+    except (ValueError, KeyError, TypeError, ArithmeticError, RecursionError):
         counts[(msg.topic(), REJECTED)] += 1
     buffer.append(record(msg))
 
@@ -67,7 +67,7 @@ def heartbeat(cloudwatch, counts):
 
 
 def run(consumer, table, s3, cloudwatch, bucket, stop, clock=time.monotonic):
-    consumer.subscribe(list(TOPICS))
+    consumer.subscribe(TOPICS)
     buffer = []
     counts = Counter(
         {(topic, metric): 0 for topic in TOPICS for metric in (WRITTEN, STALE, REJECTED)}
@@ -93,7 +93,7 @@ def main():
     from confluent_kafka import Consumer
 
     bucket = os.environ["RAW_BUCKET"]
-    bootstrap = os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092")
+    bootstrap = os.environ.get("KAFKA_BOOTSTRAP", BOOTSTRAP)
     create_topics(bootstrap)
     consumer = Consumer(
         {

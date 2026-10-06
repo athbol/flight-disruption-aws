@@ -8,6 +8,12 @@ from fda.consumer import (
     WRITTEN,
 )
 
+HEARTBEAT_ALARM = "fda-heartbeat-missing"
+THROTTLE_ALARM = "fda-dynamodb-throttles"
+GLUE_RULE = "fda-glue-failed"
+CURATE_JOB = "fda-curate"
+DYNAMODB_METRICS = ("ConsumedWriteCapacityUnits", "WriteThrottleEvents", "ReadThrottleEvents")
+
 
 def metric_widget(x, y, title, region, metrics, period, stacked=False):
     return {
@@ -32,29 +38,28 @@ def per_topic(metric):
     return [[METRIC_NAMESPACE, metric, TOPIC_DIMENSION, topic] for topic in TOPICS]
 
 
+def home(region, service):
+    return f"https://{region}.console.aws.amazon.com/{service}/home?region={region}"
+
+
 def links(region):
-    console = f"https://{region}.console.aws.amazon.com"
+    alarms = f"{home(region, 'cloudwatch')}#alarmsV2:alarm"
     return "\n".join(
         [
             "## Alerts (email via fda-alerts)",
-            f"* [fda-heartbeat-missing]({console}/cloudwatch/home?region={region}"
-            "#alarmsV2:alarm/fda-heartbeat-missing): consumer stopped sending its heartbeat",
-            f"* [fda-dynamodb-throttles]({console}/cloudwatch/home?region={region}"
-            "#alarmsV2:alarm/fda-dynamodb-throttles): writes to the live table throttled",
-            f"* [fda-glue-failed]({console}/events/home?region={region}"
-            "#/eventbus/default/rules/fda-glue-failed): Glue job failed or timed out",
-            f"* [fda-curate]({console}/gluestudio/home?region={region}"
-            "#/editor/job/fda-curate/runs): daily curate job runs",
+            f"* [{HEARTBEAT_ALARM}]({alarms}/{HEARTBEAT_ALARM}): "
+            "consumer stopped sending its heartbeat",
+            f"* [{THROTTLE_ALARM}]({alarms}/{THROTTLE_ALARM}): writes to the live table throttled",
+            f"* [{GLUE_RULE}]({home(region, 'events')}#/eventbus/default/rules/{GLUE_RULE}): "
+            "Glue job failed or timed out",
+            f"* [{CURATE_JOB}]({home(region, 'gluestudio')}#/editor/job/{CURATE_JOB}/runs): "
+            "daily curate job runs",
         ]
     )
 
 
 def dashboard(region, table):
-    dynamodb = [
-        ["AWS/DynamoDB", "ConsumedWriteCapacityUnits", "TableName", table],
-        ["AWS/DynamoDB", "WriteThrottleEvents", "TableName", table],
-        ["AWS/DynamoDB", "ReadThrottleEvents", "TableName", table],
-    ]
+    dynamodb = [["AWS/DynamoDB", metric, "TableName", table] for metric in DYNAMODB_METRICS]
     return {
         "widgets": [
             metric_widget(0, 0, "Consumer heartbeat", region, [[METRIC_NAMESPACE, HEARTBEAT]], 60),

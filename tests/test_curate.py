@@ -10,7 +10,7 @@ from pyspark.sql import SparkSession
 from fda import curate
 from fda.generator import plan_day
 from fda.raw import RAW_PREFIX, body, key
-from fda.schemas import FLIGHTS, JOURNEYS
+from fda.schemas import CURATED, FLIGHTS, JOURNEYS
 
 RUN_DATE = date(2026, 10, 6)
 
@@ -122,6 +122,18 @@ def test_latest_keeps_highest_sequence_once_per_entity(spark):
         (f"F1-{day(0)}", 3),
         (f"F2-{day(0)}", 1),
     ]
+
+
+def test_latest_drops_rows_without_a_key_or_sequence(spark):
+    events = [
+        flight(day(0), "scheduled", sequence=1),
+        flight(day(0), "departed", sequence=None) | {"event_id": "no-sequence"},
+        flight(day(0), "departed", sequence=2, number=2) | {"flight_id": None},
+    ]
+
+    rows = curate.latest(frame(spark, "flights", events), "flight_id").collect()
+
+    assert [(row["flight_id"], row["sequence"]) for row in rows] == [(f"F1-{day(0)}", 1)]
 
 
 def test_journeys_labels_each_disruption(spark):
@@ -296,18 +308,18 @@ def test_parse_run_date_reads_today_or_iso_date():
     assert curate.parse_run_date("2026-10-05") == date(2026, 10, 5)
 
 
-@pytest.mark.parametrize("name", ["journeys", "flights"])
-def test_written_parquet_matches_catalog_table(spark, tmp_path, name):
+def test_written_parquet_matches_catalog_table(spark, tmp_path):
     raw_root = write_raw(tmp_path, journey_events(day(0)))
     curated_root = tmp_path / "curated"
 
     curate.run(spark, raw_root, str(curated_root), RUN_DATE)
 
-    table = spark.read.parquet(str(curated_root / name))
-    one_day = spark.read.parquet(str(curated_root / name / f"flight_date={day(0)}"))
-    written = [{"name": f.name, "type": f.dataType.simpleString()} for f in one_day.schema]
-    assert written == catalog.columns(name)
-    assert table.columns[-1:] == [key["name"] for key in catalog.partition_keys()]
+    for name in CURATED:
+        table = spark.read.parquet(str(curated_root / name))
+        one_day = spark.read.parquet(str(curated_root / name / f"flight_date={day(0)}"))
+        written = [{"name": f.name, "type": f.dataType.simpleString()} for f in one_day.schema]
+        assert written == catalog.columns(name)
+        assert table.columns[-1:] == [key["name"] for key in catalog.partition_keys()]
 
 
 def test_run_succeeds_before_a_topic_has_raw_files(spark, tmp_path):

@@ -1,4 +1,5 @@
 from boto3.dynamodb.conditions import Key
+from botocore.exceptions import ClientError
 
 from fda import schemas
 
@@ -22,6 +23,8 @@ def item(topic, event):
 
 
 def put_live(table, topic, event):
+    if type(event["sequence"]) is not int:
+        raise TypeError("sequence must be an int")
     try:
         table.put_item(
             Item=item(topic, event),
@@ -31,6 +34,10 @@ def put_live(table, topic, event):
         )
     except table.meta.client.exceptions.ConditionalCheckFailedException:
         return False
+    except ClientError as error:
+        if error.response["Error"]["Code"] != "ValidationException":
+            raise
+        raise ValueError(error.response["Error"]["Message"]) from error
     return True
 
 

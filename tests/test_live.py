@@ -1,38 +1,13 @@
 import random
+from types import SimpleNamespace
 
 import boto3
 import pytest
 from botocore.exceptions import ClientError
-from moto import mock_aws
 
 from fda.live import TABLE_NAME, item, passenger_status, put_live
 
 REGION = "eu-central-1"
-
-
-@pytest.fixture
-def dynamodb(monkeypatch):
-    monkeypatch.setenv("AWS_DEFAULT_REGION", REGION)
-    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
-    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
-    with mock_aws():
-        yield boto3.resource("dynamodb", region_name=REGION)
-
-
-@pytest.fixture
-def table(dynamodb):
-    return dynamodb.create_table(
-        TableName=TABLE_NAME,
-        KeySchema=[
-            {"AttributeName": "pk", "KeyType": "HASH"},
-            {"AttributeName": "sk", "KeyType": "RANGE"},
-        ],
-        AttributeDefinitions=[
-            {"AttributeName": "pk", "AttributeType": "S"},
-            {"AttributeName": "sk", "AttributeType": "S"},
-        ],
-        BillingMode="PAY_PER_REQUEST",
-    )
 
 
 def flight(sequence, delay_minutes=None):
@@ -114,53 +89,53 @@ def test_item_drops_fields_outside_the_schema():
     assert "note" not in result
 
 
-def test_sequence_stored_as_number(table):
-    put_live(table, "flights", flight(3))
-    assert stored(table, "FLIGHT#GL400-2026-10-05", "STATE")["sequence"] == 3
+def test_sequence_stored_as_number(live_table):
+    put_live(live_table, "flights", flight(3))
+    assert stored(live_table, "FLIGHT#GL400-2026-10-05", "STATE")["sequence"] == 3
     raw = boto3.client("dynamodb", region_name=REGION).get_item(
         TableName=TABLE_NAME, Key={"pk": {"S": "FLIGHT#GL400-2026-10-05"}, "sk": {"S": "STATE"}}
     )
     assert raw["Item"]["sequence"] == {"N": "3"}
 
 
-def test_newer_overwrites(table):
-    assert put_live(table, "flights", flight(1))
-    assert put_live(table, "flights", flight(2, delay_minutes=45))
-    result = stored(table, "FLIGHT#GL400-2026-10-05", "STATE")
+def test_newer_overwrites(live_table):
+    assert put_live(live_table, "flights", flight(1))
+    assert put_live(live_table, "flights", flight(2, delay_minutes=45))
+    result = stored(live_table, "FLIGHT#GL400-2026-10-05", "STATE")
     assert (result["sequence"], result["event_type"], result["delay_minutes"]) == (2, "delayed", 45)
 
 
-def test_older_rejected(table):
-    put_live(table, "flights", flight(2, delay_minutes=45))
-    assert put_live(table, "flights", flight(1)) is False
-    assert stored(table, "FLIGHT#GL400-2026-10-05", "STATE")["sequence"] == 2
+def test_older_rejected(live_table):
+    put_live(live_table, "flights", flight(2, delay_minutes=45))
+    assert put_live(live_table, "flights", flight(1)) is False
+    assert stored(live_table, "FLIGHT#GL400-2026-10-05", "STATE")["sequence"] == 2
 
 
-def test_duplicate_rejected(table):
-    assert put_live(table, "flights", flight(1))
-    assert put_live(table, "flights", flight(1)) is False
+def test_duplicate_rejected(live_table):
+    assert put_live(live_table, "flights", flight(1))
+    assert put_live(live_table, "flights", flight(1)) is False
 
 
-def test_shuffled_order_converges(table):
+def test_shuffled_order_converges(live_table):
     events = [flight(sequence, delay_minutes=sequence * 10) for sequence in range(1, 6)]
     random.Random(0).shuffle(events)
-    written = [put_live(table, "flights", event) for event in events]
+    written = [put_live(live_table, "flights", event) for event in events]
     new_maxima = sum(
         event["sequence"] > max([0] + [e["sequence"] for e in events[:position]])
         for position, event in enumerate(events)
     )
-    result = stored(table, "FLIGHT#GL400-2026-10-05", "STATE")
+    result = stored(live_table, "FLIGHT#GL400-2026-10-05", "STATE")
     assert (result["sequence"], result["delay_minutes"]) == (5, 50)
     assert sum(written) == new_maxima
 
 
-def test_passenger_status_returns_only_that_passenger(table):
-    put_live(table, "bookings", booking("P1", "B1"))
-    put_live(table, "tickets", ticket("P1", "T1", "B1"))
-    put_live(table, "bookings", booking("P2", "B2"))
-    put_live(table, "tickets", ticket("P2", "T2", "B2"))
-    put_live(table, "flights", flight(1))
-    keys = {(entry["pk"], entry["sk"]) for entry in passenger_status(table, "P1")}
+def test_passenger_status_returns_only_that_passenger(live_table):
+    put_live(live_table, "bookings", booking("P1", "B1"))
+    put_live(live_table, "tickets", ticket("P1", "T1", "B1"))
+    put_live(live_table, "bookings", booking("P2", "B2"))
+    put_live(live_table, "tickets", ticket("P2", "T2", "B2"))
+    put_live(live_table, "flights", flight(1))
+    keys = {(entry["pk"], entry["sk"]) for entry in passenger_status(live_table, "P1")}
     assert keys == {("PAX#P1", "BOOKING#B1"), ("PAX#P1", "TICKET#T1")}
 
 
@@ -169,3 +144,20 @@ def test_other_errors_propagate(dynamodb):
     with pytest.raises(ClientError) as error:
         put_live(missing, "flights", flight(1))
     assert error.value.response["Error"]["Code"] == "ResourceNotFoundException"
+
+
+@pytest.mark.parametrize("sequence", ["9", None, True, 1.5, [1], {"n": 1}])
+def test_sequence_that_is_not_an_int_is_a_type_error(live_table, sequence):
+    with pytest.raises(TypeError):
+        put_live(live_table, "flights", flight(sequence))
+    assert live_table.scan()["Items"] == []
+
+
+def test_validation_error_from_dynamodb_is_a_value_error(live_table):
+    def put_item(**kwargs):
+        error = {"Error": {"Code": "ValidationException", "Message": "bad operand"}}
+        raise ClientError(error, "PutItem")
+
+    table = SimpleNamespace(put_item=put_item, meta=live_table.meta)
+    with pytest.raises(ValueError):
+        put_live(table, "flights", flight(1))

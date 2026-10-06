@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 
 from fda.schemas import TOPICS
+from fda.topics import BOOTSTRAP, create_topics
 
 EVENT_NAMESPACE = uuid.UUID("6f1c2a9e-4b7d-4e2a-9c51-0d3f8a6b2e47")
 
@@ -56,21 +57,16 @@ def plan_day(seed: str, day: date) -> list[dict]:
     rng = random.Random(f"{seed}:{day}")
     start = midnight(day)
     cancelled_at = start + CANCELLATION_NOTICE
-    flights = [new_flight(day, number) for number in range(FLIGHTS_PER_DAY)]
-    outcomes = [draw_outcome(rng) for _ in flights]
-    cancelled = {
-        flight["flight_id"]
-        for flight, (outcome, _) in zip(flights, outcomes, strict=True)
-        if outcome == "cancelled"
-    }
+    flights = [(new_flight(day, number), draw_outcome(rng)) for number in range(FLIGHTS_PER_DAY)]
+    cancelled = {flight["flight_id"] for flight, (outcome, _) in flights if outcome == "cancelled"}
     emissions = []
-    for number, (flight, (outcome, delay)) in enumerate(zip(flights, outcomes, strict=True)):
+    for number, (flight, (outcome, delay)) in enumerate(flights):
         hold = draw_hold(rng) if outcome == "cancelled" else timedelta(0)
         changes = flight_changes(start, cancelled_at, flight, outcome, delay)
         emissions += entity_emissions(rng, seed, "flights", flight["flight_id"], changes, hold)
         alternatives = [
             other["flight_id"]
-            for other in flights
+            for other, _ in flights
             if (other["origin"], other["destination"]) == (flight["origin"], flight["destination"])
             and other["flight_id"] not in cancelled
         ]
@@ -182,22 +178,6 @@ def entity_emissions(rng, seed, topic, entity_id, changes, hold_last=timedelta(0
     return emissions
 
 
-def create_topics(bootstrap):
-    from confluent_kafka import KafkaError, KafkaException
-    from confluent_kafka.admin import AdminClient, NewTopic
-
-    admin = AdminClient({"bootstrap.servers": bootstrap})
-    existing = admin.list_topics(timeout=30).topics
-    missing = [NewTopic(topic, num_partitions=1) for topic in TOPICS if topic not in existing]
-    if missing:
-        for future in admin.create_topics(missing).values():
-            try:
-                future.result()
-            except KafkaException as error:
-                if error.args[0].code() != KafkaError.TOPIC_ALREADY_EXISTS:
-                    raise
-
-
 def check_delivery(err, _message):
     if err is not None:
         raise RuntimeError(f"delivery failed: {err}")
@@ -246,7 +226,7 @@ def run(producer, emissions, stopping):
 def main():
     from confluent_kafka import Producer
 
-    bootstrap = os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092")
+    bootstrap = os.environ.get("KAFKA_BOOTSTRAP", BOOTSTRAP)
     seed = os.environ.get("SEED", "fda")
     create_topics(bootstrap)
     producer = Producer({"bootstrap.servers": bootstrap})
