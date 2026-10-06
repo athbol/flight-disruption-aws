@@ -36,6 +36,10 @@ def from_ip(vps_ip, extra=None):
     return {"IpAddress": {"aws:SourceIp": f"{vps_ip}/32"}} | (extra or {})
 
 
+def trail_bucket_name(account):
+    return f"fda-{account}-trail"
+
+
 def trail_bucket_lock(bucket_arn):
     return [
         deny(TRAIL_OBJECT_DENIES, [f"{bucket_arn}/*"]),
@@ -142,7 +146,7 @@ def deploy_policy(account):
         f"{iam}:instance-profile/fda-*",
     ]
     boundary = {"StringEquals": {"iam:PermissionsBoundary": f"{iam}:policy/fda-boundary"}}
-    trail_bucket = f"arn:aws:s3:::fda-{account}-trail"
+    trail_bucket = f"arn:aws:s3:::{trail_bucket_name(account)}"
     return policy(
         [
             allow(

@@ -346,7 +346,7 @@ aws.iam.RolePolicy(
 
 trail_bucket = private_bucket(
     "trail-bucket",
-    f"fda-{account}-trail",
+    iam.trail_bucket_name(account),
     [
         {
             "id": "expire-trail",
