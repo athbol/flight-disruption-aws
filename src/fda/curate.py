@@ -45,7 +45,8 @@ def read_topic(spark, raw_root: str, topic: str, days: list[str]):
 def latest(df, key: str):
     newest_first = Window.partitionBy(key).orderBy(col("sequence").desc())
     return (
-        df.dropDuplicates(["event_id"])
+        df.dropna(subset=[key, "sequence"])
+        .dropDuplicates(["event_id"])
         .withColumn("rank", row_number().over(newest_first))
         .filter(col("rank") == 1)
         .drop("rank")
