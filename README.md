@@ -32,8 +32,8 @@ Screenshots from the live system, in the order the data flows.
 5. ![Athena query](docs/screenshots/05-athena-query.png) Disruptions over the last three days.
 6. ![CloudWatch dashboard](docs/screenshots/06-cloudwatch-dashboard.png) Heartbeat, events written and stale events skipped.
 7. ![Alarm email](docs/screenshots/07-alarm-email.png) The email that arrives when the consumer stops.
-8. ![GitHub Actions](docs/screenshots/08-github-actions-green.png) Tests and preview on a pull request, deploy on main.
-9. ![Pulumi up in CI](docs/screenshots/09-pulumi-up.png) The deploy log on a push with no infrastructure change.
+8. ![GitHub Actions](docs/screenshots/08-github-actions-green.png) Every push to main runs the tests and then `pulumi up`.
+9. ![Pulumi up in CI](docs/screenshots/09-pulumi-up.png) The Pulumi step of that deploy: one resource changed, 48 unchanged.
 10. ![Budget](docs/screenshots/10-budget.png) The 1 USD monthly budget.
 
 ## One passenger, two stores
