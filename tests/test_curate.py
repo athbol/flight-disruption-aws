@@ -308,3 +308,13 @@ def test_written_parquet_matches_catalog_table(spark, tmp_path, name):
     written = [{"name": f.name, "type": f.dataType.simpleString()} for f in one_day.schema]
     assert written == catalog.columns(name)
     assert table.columns[-1:] == [key["name"] for key in catalog.partition_keys()]
+
+
+def test_run_succeeds_before_a_topic_has_raw_files(spark, tmp_path):
+    raw_root = write_raw(tmp_path, [("flights", day(0), flight(day(0)))])
+    curated_root = tmp_path / "curated"
+
+    curate.run(spark, raw_root, str(curated_root), RUN_DATE)
+
+    assert partitions(curated_root, "journeys") == []
+    assert partitions(curated_root, "flights") == [f"flight_date={day(0)}"]
