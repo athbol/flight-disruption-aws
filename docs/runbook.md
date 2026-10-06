@@ -2,8 +2,8 @@
 
 ## VPS
 
-The generator, Kafka and the consumer run as a Docker Compose stack on the VPS (SSH alias `vps`, user `deploy`).
-The `deploy` user is not in the docker group, so every Docker command uses `sudo`.
+The generator, Kafka and the consumer run as a Docker Compose stack on the VPS (your SSH alias), logged in as your deploy user.
+Your deploy user is not in the docker group, so every Docker command uses `sudo`.
 Nothing listens on the host. The containers talk over the compose network.
 
 ### First install
@@ -23,7 +23,7 @@ Nothing listens on the host. The containers talk over the compose network.
    ```sh
    pulumi stack output --stack athbol-projects/flight-disruption-aws/prod --show-secrets --json \
      | python3 -c 'import json, sys; o = json.load(sys.stdin); [print(k + "=" + o[v]) for k, v in [("RAW_BUCKET", "bucket"), ("AWS_ACCESS_KEY_ID", "consumer_access_key_id"), ("AWS_SECRET_ACCESS_KEY", "consumer_secret_access_key")]]' \
-     | ssh vps 'sudo install -m 600 -o root -g root /dev/stdin /opt/flight-disruption-aws/.env'
+     | ssh <vps> 'sudo install -m 600 -o root -g root /dev/stdin /opt/flight-disruption-aws/.env'
    ```
 
    Verify: `sudo wc -l /opt/flight-disruption-aws/.env` shows 3 lines and `sudo stat -c "%a %U" /opt/flight-disruption-aws/.env` shows `600 root`.
