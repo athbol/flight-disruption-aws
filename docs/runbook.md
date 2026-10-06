@@ -145,14 +145,14 @@ On the VPS, stop the consumer.
 cd /opt/flight-disruption-aws && sudo docker compose stop consumer
 ```
 
-Wait for the ALARM email. It arrives 10 to 15 minutes after the stop.
+Wait for the ALARM email. It arrives about 20 minutes after the stop: the alarm needs two empty 5-minute periods and CloudWatch evaluates them with a delay.
 Then start the consumer again.
 
 ```sh
 sudo docker compose start consumer
 ```
 
-Verify: an OK email arrives 10 to 15 minutes after the start.
+Verify: an OK email arrives within a few minutes of the start.
 `aws cloudwatch describe-alarms --alarm-names fda-heartbeat-missing --query 'MetricAlarms[0].StateValue'` shows `ALARM` while the consumer is stopped, then `OK`.
 
 ### Test the Glue failure rule
