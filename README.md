@@ -1,8 +1,8 @@
 # flight-disruption-aws
 
-A small airline runs 24 flights a day. Some are delayed, some are cancelled, and the passengers on a cancelled flight are rebooked or refunded. This repo generates those events as synthetic data, streams them through Kafka, keeps a live status table in DynamoDB, archives every event in S3, and turns the archive into query-ready Parquet tables once a day with Glue and Athena. Everything on AWS is created by Pulumi from a GitHub Actions workflow. It runs for under one dollar a month.
+A small airline runs 24 flights a day. Some are delayed, some are cancelled, and the passengers on a cancelled flight are rebooked or refunded. This repo generates those events as synthetic data, streams them through Kafka, keeps a live status table in DynamoDB, archives every event in S3, and turns the archive into query-ready Parquet tables once a day with a PySpark job on Glue, queried with Athena. Everything on AWS is created by Pulumi from a GitHub Actions workflow. It is sized to run for under one dollar a month.
 
-I built it to show, on a public repo with no customer data, how I would rebuild the disruption pipeline I worked on at an airline: the same ordering, duplicate and late-data problems, the same split between a live store and an analytical store, and the same deployment and alerting around it.
+I built it to show, on a public repo with no customer data, how I would rebuild the disruption pipeline I worked on at an airline. It has the same problems: events arrive out of order, twice, or late. It keeps the same split between a live store for operations and an analytical store for reporting.
 
 ## How it fits together
 
@@ -13,11 +13,11 @@ I built it to show, on a public repo with no customer data, how I would rebuild 
 | A generator plans each day from a seed and emits booking, ticket and flight events at their scheduled times, with lag, duplicates and held cancellations mixed in | Docker on a VPS | A deterministic, replayable source that is messy in the ways real feeds are |
 | Events sit on three Kafka topics with 48 hours of retention | Kafka 4.3 (KRaft), one broker, same VPS | Nothing on the AWS side needs to be up for the source to keep going |
 | A consumer writes the newest state of each flight, booking and ticket | DynamoDB table `fda-live` | Writes are idempotent and safe against out-of-order delivery |
-| The same consumer archives every event as gzip JSONL, partitioned by topic and day, and commits Kafka offsets only after the archive write succeeds | S3 `raw/` | At-least-once delivery with no lost events |
-| A daily PySpark job dedupes the archive, keeps the latest version of each entity, joins them into passenger journeys and rewrites the last four days as Parquet | Glue 5.0, 2 workers, Flex | Late and duplicate events are repaired without a backfill |
+| The same consumer archives every event as gzip JSONL, partitioned by topic and arrival day, and commits Kafka offsets only after the archive write succeeds | S3 `raw/` | At-least-once delivery: a crash replays events instead of skipping them |
+| A daily PySpark job on Glue, `fda-curate`, dedupes the archive, keeps the latest version of each entity, joins them into passenger journeys and rewrites the last four days as Parquet | Glue 5.0, 2 workers, Flex | Late and duplicate events are repaired without a backfill |
 | Saved queries answer "which journeys were disrupted", "which flights were late yesterday" and "what happened to this passenger" | Athena, Glue catalog with partition projection | Analysts query it with plain SQL and nothing to keep running |
 
-Pulumi describes all of it in `infra/`. A push to `main` runs `pulumi up` through GitHub Actions, which gets its AWS credentials from OIDC instead of stored keys. CloudWatch alarms and an EventBridge rule send an email when the consumer stops, when DynamoDB throttles, or when the Glue job fails.
+Pulumi describes all of it in `infra/`. A push to `main` runs `pulumi up` through GitHub Actions, which gets its AWS credentials from OIDC instead of stored keys. CloudWatch alarms and an EventBridge rule send an email when the consumer stops, when DynamoDB throttles, or when the daily job fails.
 
 ## It runs
 
@@ -26,7 +26,7 @@ Screenshots from the live system, in the order the data flows.
 1. ![compose ps on the VPS](docs/screenshots/01-compose-up.png) The three containers on the VPS. Kafka is healthy.
 2. ![A DynamoDB item](docs/screenshots/02-dynamodb-item.png) One booking in the live table.
 3. ![S3 raw prefix](docs/screenshots/03-s3-raw.png) Raw archive, one object per flush.
-4. ![Glue job run](docs/screenshots/04-glue-run.png) The daily curate job, succeeded.
+4. ![Glue job run](docs/screenshots/04-glue-run.png) The daily job, succeeded.
 5. ![Athena query](docs/screenshots/05-athena-query.png) The curated `flights` table queried in Athena on the first day: six flights so far, one of them delayed.
 6. ![CloudWatch dashboard](docs/screenshots/06-cloudwatch-dashboard.png) Heartbeat, events written and stale events skipped.
 <!-- 07-alarm-email.png is added with the passenger example on 2026-10-07 -->
@@ -53,21 +53,21 @@ P...         | F0...     | departed      | rebooked       | F0...              |
 
 ## The hard parts
 
-Out-of-order events. Every event carries a per-entity `sequence`. The consumer writes with a conditional put that only succeeds if the stored sequence is lower, so an old event that arrives late cannot overwrite a newer state. It counts the rejected write as `EventsStale` and moves on.
+Events arrive out of order. Every event carries a per-entity `sequence`. The consumer writes with a conditional put that only succeeds if the stored sequence is lower, so an old event that arrives late cannot overwrite a newer state. It counts the rejected write as `EventsStale` and moves on.
 
-Duplicates. Event ids are UUIDv5 of seed, entity and sequence, so a re-sent event has the same id as the original. The conditional put drops it in DynamoDB. The daily job drops it again with `dropDuplicates("event_id")` before it picks the latest version of each entity.
+Events arrive twice. Event ids are UUIDv5 of seed, entity and sequence, so a re-sent event has the same id as the original. The conditional put drops it in DynamoDB. The daily job drops it again with `dropDuplicates("event_id")` before it picks the latest version of each entity.
 
-Late data. The generator delays some events by up to 36 hours and holds some cancellations for a few hours. The daily job therefore reads the last four days of the archive, rebuilds journeys for flights in that window, and overwrites only those date partitions. A flight that got its last event two days after it flew ends up correct on the next run, with no manual backfill.
+Events arrive late. The generator delays some events by up to 36 hours and holds some cancellations for a few hours. The daily job therefore reads the last four days of the archive, rebuilds journeys for flights in that window, and overwrites only those date partitions. A flight that got its last event two days after it flew ends up correct on the next run, with no manual backfill. The archive is partitioned by the day an event arrived and the curated tables by flight date, so a late event lands in today's folder and still rewrites its flight's day. A flight older than the window is skipped, so a late event never overwrites a finished day with partial data.
 
-Offsets after the flush. The consumer buffers events and uploads them to S3 every 5000 records, every 16 MB or every five minutes, whichever comes first. It commits Kafka offsets only after the upload succeeds. A crash between the two replays a few events, and the two mechanisms above absorb the replay. The trade is at-least-once for never losing an event.
+The consumer commits Kafka offsets only after the S3 upload. It buffers events and uploads them to S3 every 5000 records, every 16 MB or every five minutes, whichever comes first. It commits Kafka offsets only after the upload succeeds. A crash before the commit replays everything since the last commit, up to five minutes of events, and the two rules above absorb the replay. The archive can therefore hold duplicate lines.
 
-Least privilege per step. The consumer has one IAM user that can write to one table, one S3 prefix and one metric namespace, and only from the VPS address. The Glue job has a role that reads `raw/` and writes `curated/`. GitHub Actions assumes a deploy role through OIDC on pushes to `main` and a read-only role on pull requests. Anything the deploy role creates must carry a permissions boundary that has no IAM or STS rights, so CI cannot escalate through a new identity.
+Each step has its own narrow IAM identity. The consumer has one IAM user that can write to one table, one S3 prefix and one metric namespace, and only from the VPS address. The daily job has a role that reads `raw/` and writes `curated/`. GitHub Actions assumes a deploy role through OIDC on pushes to `main` and a read-only role on pull requests. Every role or user the deploy role creates must carry a permissions boundary that has no IAM or STS rights, so CI cannot escalate through a new identity.
 
-A one dollar budget. A budget alert at 80% and a forecast alert at 100% of 1 USD. The Athena workgroup refuses queries that would scan more than 100 MB. Raw objects expire after 30 days.
+The account has a 1 USD monthly budget. It emails at 80% of actual spend and at 100% of forecast spend. The Athena workgroup cancels any query that scans more than 100 MB. Raw objects expire after 30 days.
 
 ## Run it yourself
 
-The tests need Python 3.11, [uv](https://docs.astral.sh/uv/) and Java 17 for the PySpark tests.
+The tests need [uv](https://docs.astral.sh/uv/) and Java 17; uv installs Python 3.11 itself.
 
 ```sh
 git clone https://github.com/athbol/flight-disruption-aws && cd flight-disruption-aws
@@ -75,9 +75,9 @@ uv sync --locked
 uv run pytest
 ```
 
-The tests cover the generator plan, the DynamoDB write rule, the S3 layout, the consumer loop, the Spark job and every IAM policy. The consumer and DynamoDB tests run against moto, so there is no AWS account involved.
+The tests cover the generator plan, the DynamoDB write rule, the S3 layout, the consumer loop, the Spark job and every IAM policy. AWS calls go to moto, and Kafka and CloudWatch to in-memory fakes, so no test needs an AWS account or a broker.
 
-Deploying the real thing needs an AWS account, a Pulumi account and a host for the Docker Compose stack. `docs/runbook.md` has the steps, the checks and how to test each alarm. The three saved Athena queries are in `sql/`: disruptions over the last three days, delayed flights yesterday, and one passenger's journeys.
+Deploying the real thing needs an AWS account, a Pulumi account and a host for the Docker Compose stack. [docs/runbook.md](docs/runbook.md) covers the VPS install, the health checks, how to test each alarm, and the changes that need admin credentials. The three saved Athena queries are [sql/disruptions_last_3_days.sql](sql/disruptions_last_3_days.sql), [sql/delayed_flights_yesterday.sql](sql/delayed_flights_yesterday.sql) and [sql/passenger_journey.sql](sql/passenger_journey.sql).
 
 ## Cost
 
@@ -86,8 +86,8 @@ Estimated monthly cost at this volume, before any credits. Measured figures repl
 | Service | Use | USD / month |
 |---------|-----|-------------|
 | DynamoDB | 5 read and 5 write units, provisioned | 0 (always-free tier) |
-| Glue | one Flex run a day, about 3 DPU-minutes | ~0.45 |
-| S3 | a few MB of raw and curated data | ~0.02 |
+| Glue | one Flex run a day, about 4 DPU-minutes (0.07 DPU-hours measured) | ~0.60 |
+| S3 | a few MB, plus PUT requests from the consumer and CloudTrail | ~0.10 |
 | Athena | KBs scanned per query | ~0 |
 | CloudWatch | 10 custom metrics, 2 alarms, 1 dashboard | 0 (free tier) |
 | SNS, EventBridge, Budgets, CloudTrail | one email topic, one rule, one budget, one trail | 0 |
@@ -97,18 +97,18 @@ The VPS is shared with other projects and not counted.
 
 ## What it does not do
 
-* An event that arrives more than two days after its flight is left out of the curated tables for good.
-* One Kafka broker on one box. Kafka itself is a single point of failure, which is fine for a demo and wrong for a product.
+* An event that arrives after the 02:30 UTC run three days after its flight date never reaches the curated tables. The generator's worst case is under two days, so only a real feed would hit this.
+* One Kafka broker on one box, with no replication. If the VPS disk fails, events not yet archived are lost.
 * No schema registry. The three schemas live in `src/fda/schemas.py` and every module reads them from there.
-* The two stores can still disagree on a malformed event. The consumer rejects an event with a decimal in a whole-number field, while the daily job keeps it with that field empty. Both drop an event with no `event_id`.
+* The two stores can still disagree on a malformed event. The consumer rejects an event with a decimal in `delay_minutes` or `amount_cents`, while the daily job keeps it with that field empty. Both drop an event with no `event_id` or a non-whole `sequence`.
 * If the generator is down for part of a day, the bookings for a flight whose events were all skipped do not show up in `journeys` for that day.
-* CI can create new `fda-` roles and users. The permissions boundary stops them from reaching IAM or STS, but it does not stop them from existing.
+* CI can create new `fda-` roles and users. They stay inside the permissions boundary, so they cannot reach IAM or STS. A compromised CI run could still leave one behind as a way back in.
 * CI deploys with a personal Pulumi access token stored as a GitHub secret.
 
-`docs/decisions.md` records why it is built this way and what the alternatives cost.
+[docs/decisions.md](docs/decisions.md) records why it is built this way and what the alternatives cost.
 
 ## Stack
 
-Python 3.11, confluent-kafka, boto3, Apache Kafka 4.3 (KRaft), DynamoDB, S3, Glue 5.0 (Spark 3.5), Athena, Pulumi, GitHub Actions with OIDC, CloudWatch, SNS, EventBridge, Docker Compose, uv, ruff, pytest, moto.
+Python 3.11, PySpark 3.5 on Glue 5.0, Apache Kafka 4.3 (KRaft), confluent-kafka, boto3, DynamoDB, S3, Parquet, Athena, Pulumi, IAM with GitHub OIDC, GitHub Actions, CloudWatch, SNS, EventBridge, CloudTrail, Docker Compose, uv, ruff, pytest, moto.
 
-MIT licence.
+[MIT licence](LICENSE).
