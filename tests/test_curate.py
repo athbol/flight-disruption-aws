@@ -207,6 +207,21 @@ def test_window_drops_flights_after_run_date(spark, tmp_path):
     assert partitions(curated_root, "flights") == [f"flight_date={day(0)}"]
 
 
+def test_window_keeps_late_event_for_older_flight_out(spark, tmp_path):
+    second = ("flights", day(-4), flight(day(-4), number=2))
+    late = ("flights", day(-3), flight(day(-4), "departed", sequence=2, delay=20))
+    events = journey_events(day(-4)) + [second, late] + journey_events(day(0))
+    raw_root = write_raw(tmp_path, events)
+    curated_root = tmp_path / "curated"
+    old = str(curated_root / "flights" / f"flight_date={day(-4)}")
+
+    curate.run(spark, raw_root, str(curated_root), RUN_DATE - timedelta(days=1))
+    before = spark.read.parquet(old).count()
+    curate.run(spark, raw_root, str(curated_root), RUN_DATE)
+
+    assert (before, spark.read.parquet(old).count()) == (2, 2)
+
+
 def test_run_end_to_end_on_generated_days(spark, tmp_path):
     first = RUN_DATE - timedelta(days=1)
     emissions = plan_day("s", first) + plan_day("s", RUN_DATE)
