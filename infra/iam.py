@@ -220,6 +220,12 @@ def preview_deny():
     )
 
 
+def tls_only(bucket_arn):
+    statement = deny(["s3:*"], [bucket_arn, f"{bucket_arn}/*"])
+    condition = {"Bool": {"aws:SecureTransport": "false"}}
+    return policy([{"Principal": "*"} | statement | {"Condition": condition}])
+
+
 def service_publish(sid, service, topic_arn, source_arns):
     condition = {"ArnEquals": {"aws:SourceArn": source_arns}}
     statement = allow(["sns:Publish"], [topic_arn], condition)
