@@ -187,6 +187,7 @@ for name in ("journeys", "flights"):
 workgroup = aws.athena.Workgroup(
     "athena",
     name="fda",
+    force_destroy=True,
     configuration={
         "enforce_workgroup_configuration": True,
         "publish_cloudwatch_metrics_enabled": True,
