@@ -312,11 +312,11 @@ def test_validation_exception_from_dynamodb_is_rejected_and_kept_raw(aws):
         raise ClientError(error, "PutItem")
 
     table = SimpleNamespace(put_item=put_item, meta=aws.table.meta)
-    messages = [message("flights", 0, flight("F1"))]
+    messages = [message("flights", 0, flight("F1")), message("flights", 1, flight("F2"))]
     clock, tick = fake_clock(HEARTBEAT_SECONDS / 2)
     consumer = fake_consumer(messages, aws.s3, tick)
     cloudwatch = fake_cloudwatch()
     run(consumer, table, aws.s3, cloudwatch, BUCKET, until_drained(consumer), clock)
-    assert metric_values(cloudwatch.calls[0]) == beat({("flights", REJECTED): 1})
-    assert len(raw_lines(aws.s3)) == 1
+    assert metric_values(cloudwatch.calls[0]) == beat({("flights", REJECTED): 2})
+    assert len(raw_lines(aws.s3)) == 2
     assert len(consumer.commits) == 1

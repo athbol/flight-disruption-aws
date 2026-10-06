@@ -42,7 +42,7 @@ def handle(table, msg, buffer, counts):
     try:
         written = put_live(table, msg.topic(), json.loads(value))
         counts[(msg.topic(), WRITTEN if written else STALE)] += 1
-    except (ValueError, KeyError, TypeError, ArithmeticError):
+    except (ValueError, KeyError, TypeError, ArithmeticError, RecursionError):
         counts[(msg.topic(), REJECTED)] += 1
     buffer.append(record(msg))
 
