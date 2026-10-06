@@ -332,6 +332,51 @@ aws.iam.RolePolicy(
     policy=json.dumps(iam.preview_deny()),
 )
 
+trail_bucket = aws.s3.Bucket("trail-bucket", bucket=f"fda-{account}-trail")
+aws.s3.BucketPublicAccessBlock(
+    "trail-bucket-public-access",
+    bucket=trail_bucket.id,
+    block_public_acls=True,
+    block_public_policy=True,
+    ignore_public_acls=True,
+    restrict_public_buckets=True,
+)
+aws.s3.BucketServerSideEncryptionConfiguration(
+    "trail-bucket-encryption",
+    bucket=trail_bucket.id,
+    rules=[{"apply_server_side_encryption_by_default": {"sse_algorithm": "AES256"}}],
+)
+aws.s3.BucketLifecycleConfiguration(
+    "trail-bucket-lifecycle",
+    bucket=trail_bucket.id,
+    rules=[
+        {
+            "id": "expire-trail",
+            "status": "Enabled",
+            "filter": {"prefix": ""},
+            "expiration": {"days": 90},
+        }
+    ],
+)
+trail_arn = f"arn:aws:cloudtrail:{region}:{account}:trail/fda"
+trail_policy = aws.s3.BucketPolicy(
+    "trail-bucket-policy",
+    bucket=trail_bucket.id,
+    policy=trail_bucket.arn.apply(
+        lambda arn: json.dumps(iam.trail_bucket_policy(arn, trail_arn, account))
+    ),
+)
+aws.cloudtrail.Trail(
+    "trail",
+    name="fda",
+    s3_bucket_name=trail_bucket.id,
+    is_multi_region_trail=True,
+    include_global_service_events=True,
+    enable_log_file_validation=True,
+    opts=pulumi.ResourceOptions(depends_on=[trail_policy]),
+)
+aws.accessanalyzer.Analyzer("access-analyzer", analyzer_name="fda", type="ACCOUNT")
+
 pulumi.export("bucket", bucket.bucket)
 pulumi.export("table", table.name)
 pulumi.export("alerts_topic_arn", alerts.arn)

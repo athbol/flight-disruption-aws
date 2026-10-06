@@ -301,3 +301,21 @@ def test_bucket_refuses_requests_without_tls():
     assert actions(statement) == ["s3:*"]
     assert set(resources(statement)) == {BUCKET_ARN, f"{BUCKET_ARN}/*"}
     assert statement["Condition"] == {"Bool": {"aws:SecureTransport": "false"}}
+
+
+TRAIL_BUCKET_ARN = "arn:aws:s3:::fda-trail"
+TRAIL_ARN = f"arn:aws:cloudtrail:{REGION}:{ACCOUNT}:trail/fda"
+
+
+def test_trail_bucket_takes_only_our_trail_writes():
+    trail = iam.trail_bucket_policy(TRAIL_BUCKET_ARN, TRAIL_ARN, ACCOUNT)
+    acl_check, write = trail["Statement"]
+    for statement in (acl_check, write):
+        assert statement["Effect"] == "Allow"
+        assert statement["Principal"] == {"Service": "cloudtrail.amazonaws.com"}
+        assert statement["Condition"]["StringEquals"]["aws:SourceArn"] == TRAIL_ARN
+    assert actions(acl_check) == ["s3:GetBucketAcl"]
+    assert resources(acl_check) == [TRAIL_BUCKET_ARN]
+    assert actions(write) == ["s3:PutObject"]
+    assert resources(write) == [f"{TRAIL_BUCKET_ARN}/AWSLogs/{ACCOUNT}/*"]
+    assert write["Condition"]["StringEquals"]["s3:x-amz-acl"] == "bucket-owner-full-control"
