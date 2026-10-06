@@ -5,6 +5,9 @@ import pulumi
 import pulumi_aws as aws
 
 REPO = "athbol/flight-disruption-aws"
+GITHUB_OWNER_ID = 32675046
+GITHUB_REPO_ID = 1406409508
+GITHUB_SUBJECT = f"repo:athbol@{GITHUB_OWNER_ID}/flight-disruption-aws@{GITHUB_REPO_ID}"
 GITHUB_OIDC_URL = "https://token.actions.githubusercontent.com"
 GITHUB_THUMBPRINT = "6938fd4d98bab03faadb97b34396831e3780aea1"
 
@@ -143,7 +146,7 @@ deploy_role = aws.iam.Role(
     "gha-deploy",
     name="fda-gha-deploy",
     assume_role_policy=json.dumps(
-        iam.github_trust(account, REPO, f"repo:{REPO}:ref:refs/heads/main")
+        iam.github_trust(account, REPO, f"{GITHUB_SUBJECT}:ref:refs/heads/main")
     ),
     max_session_duration=3600,
 )
@@ -161,7 +164,9 @@ aws.iam.RolePolicy(
 preview_role = aws.iam.Role(
     "gha-preview",
     name="fda-gha-preview",
-    assume_role_policy=json.dumps(iam.github_trust(account, REPO, f"repo:{REPO}:pull_request")),
+    assume_role_policy=json.dumps(
+        iam.github_trust(account, REPO, f"{GITHUB_SUBJECT}:pull_request")
+    ),
 )
 aws.iam.RolePolicyAttachment(
     "gha-preview-read-only",
