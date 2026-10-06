@@ -23,24 +23,20 @@ Pulumi describes all of it in `infra/`. A push to `main` runs `pulumi up` throug
 
 Screenshots from the live system, in the order the data flows.
 
-<!-- TODO: screenshots 01 to 10 go in docs/screenshots/ (see handoff T3). -->
-
 1. ![compose ps on the VPS](docs/screenshots/01-compose-up.png) The three containers on the VPS. Kafka is healthy.
 2. ![A DynamoDB item](docs/screenshots/02-dynamodb-item.png) One booking in the live table.
 3. ![S3 raw prefix](docs/screenshots/03-s3-raw.png) Raw archive, one object per flush.
 4. ![Glue job run](docs/screenshots/04-glue-run.png) The daily curate job, succeeded.
 5. ![Athena query](docs/screenshots/05-athena-query.png) The curated `flights` table queried in Athena on the first day: six flights so far, one of them delayed.
 6. ![CloudWatch dashboard](docs/screenshots/06-cloudwatch-dashboard.png) Heartbeat, events written and stale events skipped.
-7. ![Alarm email](docs/screenshots/07-alarm-email.png) The email that arrives when the consumer stops.
+<!-- 07-alarm-email.png is added with the passenger example on 2026-10-07 -->
 8. ![GitHub Actions](docs/screenshots/08-github-actions-green.png) Every push to main runs the tests and then `pulumi up`.
 9. ![Pulumi up in CI](docs/screenshots/09-pulumi-up.png) The Pulumi step of that deploy: one resource changed, 48 unchanged.
 10. ![Budget](docs/screenshots/10-budget.png) The 1 USD monthly budget.
 
 ## One passenger, two stores
 
-<!-- TODO: fill from the live system after the first full-day Glue run on 2026-10-07. -->
-
-The same synthetic passenger as the consumer sees them in DynamoDB and as an analyst sees them in Athena after the daily job.
+The same synthetic passenger as the consumer sees them in DynamoDB and as an analyst sees them in Athena after the daily job. The values below show the shape of the two records. A real rebooked passenger replaces them after the first full-day run on 2026-10-07.
 
 The DynamoDB item is the latest event for that booking, keyed `PAX#<passenger>` / `BOOKING#<booking>`, so one query by passenger returns their bookings and tickets:
 
