@@ -213,6 +213,12 @@ def preview_deny():
                     "logs:FilterLogEvents",
                     "ssm:GetParameter*",
                     "secretsmanager:GetSecretValue",
+                    "s3:GetObjectVersion",
+                    "dynamodb:PartiQLSelect",
+                    "logs:StartQuery",
+                    "logs:GetQueryResults",
+                    "logs:StartLiveTail",
+                    "logs:GetLogRecord",
                 ],
                 ["*"],
             )
