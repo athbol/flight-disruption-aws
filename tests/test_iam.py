@@ -1,3 +1,5 @@
+from fnmatch import fnmatchcase
+
 import iam
 
 ACCOUNT = "123456789012"
@@ -188,13 +190,27 @@ def denied(policy, action, resource):
     )
 
 
+GRANTING = (
+    "iam:CreateRole",
+    "iam:CreateUser",
+    "iam:PutRolePolicy",
+    "iam:PutUserPolicy",
+    "iam:AttachRolePolicy",
+    "iam:AttachUserPolicy",
+    "iam:PutRolePermissionsBoundary",
+    "iam:PutUserPermissionsBoundary",
+)
+
+
 def test_deploy_creates_and_grants_identities_only_with_the_boundary():
     policy = iam.deploy_policy(ACCOUNT)
-    granting = {"iam:CreateRole", "iam:CreateUser", "iam:PutRolePolicy", "iam:AttachRolePolicy"}
+    condition = {"StringEquals": {"iam:PermissionsBoundary": BOUNDARY_ARN}}
     for statement in policy["Statement"]:
-        if statement["Effect"] == "Allow" and granting & set(actions(statement)):
-            condition = {"StringEquals": {"iam:PermissionsBoundary": BOUNDARY_ARN}}
-            assert statement["Condition"] == condition
+        if statement["Effect"] != "Allow" or statement.get("Condition") == condition:
+            continue
+        for pattern in actions(statement):
+            for action in GRANTING:
+                assert not fnmatchcase(action, pattern), (pattern, action)
     assert not any("iam:*" in actions(s) for s in policy["Statement"] if s["Effect"] == "Allow")
 
 
