@@ -1,9 +1,12 @@
 from collections import Counter, defaultdict
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from itertools import takewhile
+from types import SimpleNamespace
 
 import pytest
 
-from fda.generator import CARRY_OVER_DAYS, midnight, plan_day
+from fda import generator
+from fda.generator import CARRY_OVER_DAYS, STOP_CHECK_SECONDS, midnight, plan_day, run, schedule
 from fda.schemas import TOPICS
 
 DAY = date(2026, 10, 5)
@@ -159,3 +162,41 @@ def test_about_thirty_percent_of_flight_cancellations_are_held_back(days):
         if e["topic"] == "flights" and e["event"]["event_type"] == "cancelled"
     ]
     assert 0.25 < sum(held) / len(held) < 0.40
+
+
+def fake_producer():
+    producer = SimpleNamespace(calls=[])
+    producer.produce = lambda topic, key, value, on_delivery: producer.calls.append(topic)
+    producer.poll = lambda timeout: None
+    producer.flush = lambda: producer.calls.append("flush")
+    return producer
+
+
+def emission(due):
+    return {"due": due, "topic": "flights", "key": "F0400", "event": {}}
+
+
+def test_stop_ends_the_loop_and_flushes():
+    producer = fake_producer()
+    past = datetime.now(UTC) - timedelta(minutes=1)
+    run(producer, [emission(past), emission(past)], lambda: "flights" in producer.calls)
+    assert producer.calls == ["flights", "flush"]
+
+
+def test_stop_during_a_wait_ends_the_loop_without_producing(monkeypatch):
+    producer = fake_producer()
+    sleeps = []
+    monkeypatch.setattr(generator.time, "sleep", sleeps.append)
+    future = datetime.now(UTC) + timedelta(hours=1)
+    run(producer, [emission(future)], lambda: bool(sleeps))
+    assert sleeps == [STOP_CHECK_SECONDS]
+    assert producer.calls == ["flush", "flush"]
+
+
+def test_schedule_is_in_due_order_across_midnight():
+    now = datetime.now(UTC)
+    horizon = midnight(now.date() + timedelta(days=2))
+    dues = [e["due"] for e in takewhile(lambda e: e["due"] < horizon, schedule("fda", now))]
+    assert dues == sorted(dues)
+    assert dues[0] >= now
+    assert dues[-1] >= midnight(now.date() + timedelta(days=1))

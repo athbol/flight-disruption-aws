@@ -1,6 +1,7 @@
 import json
 import os
 import random
+import signal
 import time
 import uuid
 from datetime import UTC, date, datetime, timedelta
@@ -44,6 +45,7 @@ MIN_HOLD_SECONDS = 3600
 MAX_HOLD_SECONDS = 3 * 3600
 
 CARRY_OVER_DAYS = 2
+STOP_CHECK_SECONDS = 1
 
 
 def midnight(day):
@@ -201,21 +203,17 @@ def check_delivery(err, _message):
         raise RuntimeError(f"delivery failed: {err}")
 
 
-def wait_until(producer, moment):
-    seconds = (moment - datetime.now(UTC)).total_seconds()
-    if seconds > 0:
+def wait_until(producer, moment, stopping):
+    if moment > datetime.now(UTC):
         producer.flush()
-        time.sleep(seconds)
+    while not stopping():
+        seconds = (moment - datetime.now(UTC)).total_seconds()
+        if seconds <= 0:
+            return
+        time.sleep(min(seconds, STOP_CHECK_SECONDS))
 
 
-def main():
-    from confluent_kafka import Producer
-
-    bootstrap = os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092")
-    seed = os.environ.get("SEED", "fda")
-    create_topics(bootstrap)
-    producer = Producer({"bootstrap.servers": bootstrap})
-    now = datetime.now(UTC)
+def schedule(seed, now):
     day = now.date()
     queue = [
         emission
@@ -226,17 +224,36 @@ def main():
     while True:
         next_midnight = midnight(day + timedelta(days=1))
         queue.sort(key=lambda emission: emission["due"])
-        for emission in [e for e in queue if e["due"] < next_midnight]:
-            wait_until(producer, emission["due"])
-            value = json.dumps(emission["event"])
-            producer.produce(
-                emission["topic"], key=emission["key"], value=value, on_delivery=check_delivery
-            )
-            producer.poll(0)
+        yield from [e for e in queue if e["due"] < next_midnight]
         queue = [e for e in queue if e["due"] >= next_midnight]
-        wait_until(producer, next_midnight)
         day += timedelta(days=1)
         queue += plan_day(seed, day)
+
+
+def run(producer, emissions, stopping):
+    for emission in emissions:
+        wait_until(producer, emission["due"], stopping)
+        if stopping():
+            break
+        value = json.dumps(emission["event"])
+        producer.produce(
+            emission["topic"], key=emission["key"], value=value, on_delivery=check_delivery
+        )
+        producer.poll(0)
+    producer.flush()
+
+
+def main():
+    from confluent_kafka import Producer
+
+    bootstrap = os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092")
+    seed = os.environ.get("SEED", "fda")
+    create_topics(bootstrap)
+    producer = Producer({"bootstrap.servers": bootstrap})
+    stopping = []
+    signal.signal(signal.SIGTERM, lambda *_: stopping.append(True))
+    signal.signal(signal.SIGINT, lambda *_: stopping.append(True))
+    run(producer, schedule(seed, datetime.now(UTC)), lambda: bool(stopping))
 
 
 if __name__ == "__main__":
