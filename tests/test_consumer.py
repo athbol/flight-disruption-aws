@@ -180,7 +180,7 @@ def test_stop_flushes_and_commits(aws):
     assert len(consumer.commits) == 1
     assert len(bucket_keys(aws.s3)) == 1
     assert consumer.closed == [True]
-    assert consumer.subscribed == [("flights", "bookings", "tickets")]
+    assert consumer.subscribed == [["flights", "bookings", "tickets"]]
 
 
 def test_flush_waits_a_full_interval_again(aws):
