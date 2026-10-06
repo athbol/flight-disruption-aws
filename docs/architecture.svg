@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="470" viewBox="0 0 960 470" font-family="Helvetica, Arial, sans-serif" font-size="13">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#333"/>
+    </marker>
+  </defs>
+  <style>
+    .box { fill: #fff; stroke: #333; stroke-width: 1.5; rx: 6; }
+    .store { fill: #f3f6fb; stroke: #333; stroke-width: 1.5; rx: 6; }
+    .zone { fill: none; stroke: #999; stroke-width: 1; stroke-dasharray: 6 4; rx: 10; }
+    .zone-label { fill: #666; font-size: 12px; }
+    .label { fill: #111; font-weight: bold; }
+    .sub { fill: #555; font-size: 11px; }
+    .flow { stroke: #333; stroke-width: 1.5; fill: none; marker-end: url(#arrow); }
+    .edge { fill: #333; font-size: 11px; }
+  </style>
+  <rect width="960" height="470" rx="8" fill="#fff"/>
+
+  <rect class="zone" x="20" y="60" width="260" height="190"/>
+  <text class="zone-label" x="32" y="80">VPS, Docker Compose</text>
+
+  <rect class="zone" x="310" y="20" width="630" height="430"/>
+  <text class="zone-label" x="322" y="40">AWS eu-central-1, created by Pulumi from GitHub Actions (OIDC)</text>
+
+  <rect class="box" x="40" y="100" width="100" height="56"/>
+  <text class="label" x="90" y="124" text-anchor="middle">Generator</text>
+  <text class="sub" x="90" y="142" text-anchor="middle">seeded daily plan</text>
+
+  <rect class="box" x="160" y="100" width="100" height="56"/>
+  <text class="label" x="210" y="124" text-anchor="middle">Kafka</text>
+  <text class="sub" x="210" y="142" text-anchor="middle">3 topics, 48 h</text>
+
+  <rect class="box" x="85" y="180" width="130" height="56"/>
+  <text class="label" x="150" y="204" text-anchor="middle">Consumer</text>
+  <text class="sub" x="150" y="222" text-anchor="middle">put, buffer, flush, commit</text>
+
+  <rect class="store" x="340" y="80" width="130" height="56"/>
+  <text class="label" x="405" y="104" text-anchor="middle">DynamoDB</text>
+  <text class="sub" x="405" y="122" text-anchor="middle">fda-live: latest state</text>
+  <text class="edge" x="405" y="156" text-anchor="middle">highest sequence wins</text>
+
+  <rect class="store" x="340" y="180" width="130" height="56"/>
+  <text class="label" x="405" y="204" text-anchor="middle">S3 raw/</text>
+  <text class="sub" x="405" y="222" text-anchor="middle">gzip JSONL by topic, day</text>
+
+  <rect class="box" x="520" y="180" width="130" height="56"/>
+  <text class="label" x="585" y="204" text-anchor="middle">Glue job</text>
+  <text class="sub" x="585" y="222" text-anchor="middle">PySpark, daily 02:30</text>
+
+  <rect class="store" x="700" y="180" width="130" height="56"/>
+  <text class="label" x="765" y="204" text-anchor="middle">S3 curated/</text>
+  <text class="sub" x="765" y="222" text-anchor="middle">Parquet by flight_date</text>
+
+  <rect class="box" x="700" y="280" width="130" height="56"/>
+  <text class="label" x="765" y="304" text-anchor="middle">Athena</text>
+  <text class="sub" x="765" y="322" text-anchor="middle">journeys, flights</text>
+
+  <rect class="box" x="340" y="360" width="150" height="56"/>
+  <text class="label" x="415" y="384" text-anchor="middle">CloudWatch</text>
+  <text class="sub" x="415" y="402" text-anchor="middle">metrics, alarms, dashboard</text>
+
+  <rect class="box" x="520" y="360" width="130" height="56"/>
+  <text class="label" x="585" y="384" text-anchor="middle">SNS email</text>
+  <text class="sub" x="585" y="402" text-anchor="middle">stopped, throttled, failed</text>
+
+  <path class="flow" d="M140,128 L160,128"/>
+  <path class="flow" d="M210,156 L210,168 L150,168 L150,180"/>
+  <path class="flow" d="M215,218 L340,218"/>
+  <text class="edge" x="246" y="212" text-anchor="middle">every event</text>
+  <path class="flow" d="M215,192 L300,192 L300,108 L340,108"/>
+  <path class="flow" d="M470,208 L520,208"/>
+  <path class="flow" d="M650,208 L700,208"/>
+  <path class="flow" d="M765,236 L765,280"/>
+  <path class="flow" d="M150,236 L150,388 L340,388"/>
+  <text class="edge" x="245" y="380" text-anchor="middle">heartbeat, written, stale</text>
+  <path class="flow" d="M490,388 L520,388"/>
+  <path class="flow" d="M585,236 L585,360"/>
+  <text class="edge" x="574" y="300" text-anchor="end">job state, EventBridge</text>
+</svg>
