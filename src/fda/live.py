@@ -1,5 +1,7 @@
 from boto3.dynamodb.conditions import Key
 
+from fda import schemas
+
 TABLE_NAME = "fda-live"
 
 
@@ -15,8 +17,8 @@ def keys(topic, event):
 
 def item(topic, event):
     pk, sk = keys(topic, event)
-    fields = {name: value for name, value in event.items() if value is not None}
-    return {"pk": pk, "sk": sk} | fields
+    fields = {name: event[name] for name in schemas.TOPICS[topic] if event.get(name) is not None}
+    return fields | {"pk": pk, "sk": sk}
 
 
 def put_live(table, topic, event):
