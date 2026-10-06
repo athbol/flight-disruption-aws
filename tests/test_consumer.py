@@ -302,3 +302,17 @@ def test_value_with_a_carriage_return_or_no_value_is_rejected_and_not_kept(aws, 
     expected = beat({("flights", REJECTED): 1, ("flights", WRITTEN): 1})
     assert metric_values(cloudwatch.calls[0]) == expected
     assert raw_lines(aws.s3) == [json.dumps(flight("F1")).encode()]
+
+
+def test_number_too_big_for_dynamodb_is_rejected_and_kept_raw(aws):
+    messages = [
+        message("flights", 0, flight("F1", sequence=10**40)),
+        message("flights", 1, flight("F2")),
+    ]
+    clock, tick = fake_clock(HEARTBEAT_SECONDS / 2)
+    consumer = fake_consumer(messages, aws.s3, tick)
+    cloudwatch = fake_cloudwatch()
+    run(consumer, aws.table, aws.s3, cloudwatch, BUCKET, until_drained(consumer), clock)
+    expected = beat({("flights", REJECTED): 1, ("flights", WRITTEN): 1})
+    assert metric_values(cloudwatch.calls[0]) == expected
+    assert len(raw_lines(aws.s3)) == 2
