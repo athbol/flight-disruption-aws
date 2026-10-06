@@ -79,11 +79,12 @@ def test_glue_cannot_write_raw_or_artifacts():
             assert f"{BUCKET_ARN}/artifacts/*" not in resources(statement)
 
 
-def test_glue_can_write_curated():
+def test_glue_can_write_curated_and_its_folder_marker():
+    curated = {f"{BUCKET_ARN}/curated/*", f"{BUCKET_ARN}/curated_$folder$"}
     writes_curated = [
         statement
         for statement in glue()["Statement"]
-        if f"{BUCKET_ARN}/curated/*" in resources(statement)
+        if curated <= set(resources(statement))
         and {"s3:PutObject", "s3:DeleteObject"} <= set(actions(statement))
     ]
     assert writes_curated
