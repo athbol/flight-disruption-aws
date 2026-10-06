@@ -291,6 +291,12 @@ def test_preview_cannot_read_data_logs_or_secrets():
         "logs:FilterLogEvents",
         "ssm:GetParameter*",
         "secretsmanager:GetSecretValue",
+        "s3:GetObjectVersion",
+        "dynamodb:PartiQLSelect",
+        "logs:StartQuery",
+        "logs:GetQueryResults",
+        "logs:StartLiveTail",
+        "logs:GetLogRecord",
     }
 
 
