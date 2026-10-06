@@ -62,11 +62,13 @@ def test_consumer_wildcard_resource_is_only_metrics_in_our_namespace():
             assert namespace == "FlightDisruption"
 
 
-def test_consumer_has_no_read_all_or_delete_actions():
-    found = all_actions(consumer())
-    forbidden = {"dynamodb:DeleteItem", "dynamodb:Scan", "s3:GetObject", "s3:DeleteObject"}
-    assert not found & forbidden
-    assert {"dynamodb:PutItem", "dynamodb:Query", "s3:PutObject"} <= found
+def test_consumer_actions_are_exactly_these_per_resource():
+    granted = {tuple(resources(s)): set(actions(s)) for s in consumer()["Statement"]}
+    assert granted == {
+        (TABLE_ARN,): {"dynamodb:PutItem", "dynamodb:Query", "dynamodb:BatchGetItem"},
+        (f"{BUCKET_ARN}/raw/*",): {"s3:PutObject"},
+        ("*",): {"cloudwatch:PutMetricData"},
+    }
 
 
 def test_glue_cannot_write_raw_or_artifacts():
@@ -128,12 +130,17 @@ def test_github_trust_pins_sub_aud_and_provider():
     }
 
 
-def test_deploy_iam_resources_are_all_fda_scoped():
+def test_deploy_allows_only_fda_named_iam_resources():
+    fda_prefixes = tuple(
+        f"arn:aws:iam::{ACCOUNT}:{kind}/fda-"
+        for kind in ("role", "user", "policy", "instance-profile")
+    )
     policy = iam.deploy_policy(ACCOUNT)
     for statement in policy["Statement"]:
+        if statement["Effect"] != "Allow":
+            continue
         for resource in resources(statement):
-            assert resource != "*"
-            assert "fda-" in resource or resource == OIDC_ARN, resource
+            assert resource.startswith(fda_prefixes) or resource == OIDC_ARN, resource
 
 
 def test_deploy_can_pass_only_fda_roles():
