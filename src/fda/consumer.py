@@ -59,7 +59,7 @@ def heartbeat(cloudwatch, counts):
 
 
 def run(consumer, table, s3, cloudwatch, bucket, stop, clock=time.monotonic):
-    consumer.subscribe(TOPICS)
+    consumer.subscribe(list(TOPICS))
     buffer = []
     counts = Counter({(topic, metric): 0 for topic in TOPICS for metric in (WRITTEN, STALE)})
     last_flush = last_beat = clock()
