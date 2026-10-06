@@ -1,0 +1,5 @@
+config:
+  aws:region: eu-central-1
+  fda:vps_ip: 203.0.113.10
+  fda:alert_email:
+    secure: AAABAD6cUBI87CeRby+mxrWfORDr/fAYTd+ckeeaVCA4rTgo6fq3DhGBOwJynU6Hc0XnOlVxjQ==
