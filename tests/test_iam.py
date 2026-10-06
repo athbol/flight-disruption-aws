@@ -216,10 +216,10 @@ def test_deploy_cannot_remove_boundaries_or_change_the_boundary_policy():
     policy = iam.deploy_policy(ACCOUNT)
     assert denied(policy, "iam:DeleteRolePermissionsBoundary", "*")
     assert denied(policy, "iam:DeleteUserPermissionsBoundary", "*")
+    matching = [
+        s for s in policy["Statement"] if s["Effect"] == "Deny" and BOUNDARY_ARN in resources(s)
+    ]
     for action in ("iam:CreatePolicyVersion", "iam:DeletePolicy", "iam:SetDefaultPolicyVersion"):
-        matching = [
-            s for s in policy["Statement"] if s["Effect"] == "Deny" and BOUNDARY_ARN in resources(s)
-        ]
         assert any(
             action.startswith(pattern.rstrip("*")) for s in matching for pattern in actions(s)
         ), action

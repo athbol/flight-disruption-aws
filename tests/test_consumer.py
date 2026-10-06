@@ -6,7 +6,6 @@ import boto3
 import pytest
 from botocore.exceptions import ClientError
 from confluent_kafka import KafkaException
-from moto import mock_aws
 
 from fda.consumer import (
     HEARTBEAT,
@@ -19,7 +18,6 @@ from fda.consumer import (
     flush,
     run,
 )
-from fda.live import TABLE_NAME
 from fda.raw import FLUSH_SECONDS
 
 REGION = "eu-central-1"
@@ -28,27 +26,10 @@ TIMESTAMP_MS = 1_791_158_400_000
 
 
 @pytest.fixture
-def aws(monkeypatch):
-    monkeypatch.setenv("AWS_DEFAULT_REGION", REGION)
-    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
-    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
-    with mock_aws():
-        dynamodb = boto3.resource("dynamodb", region_name=REGION)
-        table = dynamodb.create_table(
-            TableName=TABLE_NAME,
-            KeySchema=[
-                {"AttributeName": "pk", "KeyType": "HASH"},
-                {"AttributeName": "sk", "KeyType": "RANGE"},
-            ],
-            AttributeDefinitions=[
-                {"AttributeName": "pk", "AttributeType": "S"},
-                {"AttributeName": "sk", "AttributeType": "S"},
-            ],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        s3 = boto3.client("s3", region_name=REGION)
-        s3.create_bucket(Bucket=BUCKET, CreateBucketConfiguration={"LocationConstraint": REGION})
-        yield SimpleNamespace(dynamodb=dynamodb, table=table, s3=s3)
+def aws(live_table):
+    s3 = boto3.client("s3", region_name=REGION)
+    s3.create_bucket(Bucket=BUCKET, CreateBucketConfiguration={"LocationConstraint": REGION})
+    return SimpleNamespace(table=live_table, s3=s3)
 
 
 def flight(flight_id, sequence=1):
@@ -277,22 +258,8 @@ def test_malformed_event_is_counted_kept_raw_and_skipped(aws):
     assert raw_lines(aws.s3)[:2] == [b"{not json", b'{"sequence": 1}']
 
 
-def test_value_with_a_newline_is_rejected_and_not_kept(aws):
-    messages = [
-        message("flights", 0, None, raw=b'{"a": 1}\n{"b": 2}'),
-        message("flights", 1, flight("F1")),
-    ]
-    clock, tick = fake_clock(HEARTBEAT_SECONDS / 2)
-    consumer = fake_consumer(messages, aws.s3, tick)
-    cloudwatch = fake_cloudwatch()
-    run(consumer, aws.table, aws.s3, cloudwatch, BUCKET, until_drained(consumer), clock)
-    expected = beat({("flights", REJECTED): 1, ("flights", WRITTEN): 1})
-    assert metric_values(cloudwatch.calls[0]) == expected
-    assert raw_lines(aws.s3) == [json.dumps(flight("F1")).encode()]
-
-
-@pytest.mark.parametrize("raw", [b'{"a": 1}\r{"b": 2}', None])
-def test_value_with_a_carriage_return_or_no_value_is_rejected_and_not_kept(aws, raw):
+@pytest.mark.parametrize("raw", [b'{"a": 1}\n{"b": 2}', b'{"a": 1}\r{"b": 2}', None])
+def test_value_with_a_line_break_or_no_value_is_rejected_and_not_kept(aws, raw):
     messages = [message("flights", 0, None), message("flights", 1, flight("F1"))]
     messages[0].value = lambda: raw
     clock, tick = fake_clock(HEARTBEAT_SECONDS / 2)

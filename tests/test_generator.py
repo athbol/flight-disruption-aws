@@ -138,11 +138,10 @@ def test_rebookings_move_to_a_later_flying_flight_on_the_same_route_and_tickets_
             assert booking["original_flight_id"] is None
 
 
-def test_emissions_are_sorted_and_never_more_than_two_days_late(days):
+def test_emissions_are_sorted_and_never_more_than_two_days_late(days, plan):
     for emissions in days[:FIXTURE_DAYS]:
         dues = [emission["due"] for emission in emissions]
         assert dues == sorted(dues)
-    plan = [emission for emissions in days[:FIXTURE_DAYS] for emission in emissions]
     lateness = [e["due"] - datetime.fromisoformat(e["event"]["event_time"]) for e in plan]
     assert min(lateness) >= timedelta(0)
     assert max(lateness) < timedelta(days=2)
