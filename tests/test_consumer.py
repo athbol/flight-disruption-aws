@@ -283,3 +283,40 @@ def test_number_too_big_for_dynamodb_is_rejected_and_kept_raw(aws):
     expected = beat({("flights", REJECTED): 1, ("flights", WRITTEN): 1})
     assert metric_values(cloudwatch.calls[0]) == expected
     assert len(raw_lines(aws.s3)) == 2
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b'{"flight_id": "F9", "sequence": "9"}',
+        b'{"flight_id": "F9", "sequence": null}',
+        b'{"flight_id": "F9", "sequence": true}',
+        pytest.param(b"[" * 5000 + b"]" * 5000, id="deep"),
+    ],
+)
+def test_bad_sequence_or_too_deep_json_is_rejected_and_kept_raw(aws, raw):
+    messages = [message("flights", 0, None, raw=raw), message("flights", 1, flight("F1"))]
+    clock, tick = fake_clock(HEARTBEAT_SECONDS / 2)
+    consumer = fake_consumer(messages, aws.s3, tick)
+    cloudwatch = fake_cloudwatch()
+    run(consumer, aws.table, aws.s3, cloudwatch, BUCKET, until_drained(consumer), clock)
+    expected = beat({("flights", REJECTED): 1, ("flights", WRITTEN): 1})
+    assert metric_values(cloudwatch.calls[0]) == expected
+    assert raw_lines(aws.s3) == [raw, json.dumps(flight("F1")).encode()]
+    assert len(consumer.commits) == 1
+
+
+def test_validation_exception_from_dynamodb_is_rejected_and_kept_raw(aws):
+    def put_item(**kwargs):
+        error = {"Error": {"Code": "ValidationException", "Message": "bad operand"}}
+        raise ClientError(error, "PutItem")
+
+    table = SimpleNamespace(put_item=put_item, meta=aws.table.meta)
+    messages = [message("flights", 0, flight("F1"))]
+    clock, tick = fake_clock(HEARTBEAT_SECONDS / 2)
+    consumer = fake_consumer(messages, aws.s3, tick)
+    cloudwatch = fake_cloudwatch()
+    run(consumer, table, aws.s3, cloudwatch, BUCKET, until_drained(consumer), clock)
+    assert metric_values(cloudwatch.calls[0]) == beat({("flights", REJECTED): 1})
+    assert len(raw_lines(aws.s3)) == 1
+    assert len(consumer.commits) == 1

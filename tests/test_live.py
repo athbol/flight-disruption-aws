@@ -1,4 +1,5 @@
 import random
+from types import SimpleNamespace
 
 import boto3
 import pytest
@@ -143,3 +144,20 @@ def test_other_errors_propagate(dynamodb):
     with pytest.raises(ClientError) as error:
         put_live(missing, "flights", flight(1))
     assert error.value.response["Error"]["Code"] == "ResourceNotFoundException"
+
+
+@pytest.mark.parametrize("sequence", ["9", None, True, 1.5, [1], {"n": 1}])
+def test_sequence_that_is_not_an_int_is_a_type_error(live_table, sequence):
+    with pytest.raises(TypeError):
+        put_live(live_table, "flights", flight(sequence))
+    assert live_table.scan()["Items"] == []
+
+
+def test_validation_error_from_dynamodb_is_a_value_error(live_table):
+    def put_item(**kwargs):
+        error = {"Error": {"Code": "ValidationException", "Message": "bad operand"}}
+        raise ClientError(error, "PutItem")
+
+    table = SimpleNamespace(put_item=put_item, meta=live_table.meta)
+    with pytest.raises(ValueError):
+        put_live(table, "flights", flight(1))
