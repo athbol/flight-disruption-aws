@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from pyspark.sql import Window
 from pyspark.sql.functions import col, row_number, when
@@ -9,6 +9,10 @@ from fda.schemas import FLIGHTS, JOURNEYS, TOPICS
 LOOKBACK_DAYS = 3
 LATE_DAYS = 2
 LONG_FIELDS = ("sequence", "delay_minutes", "amount_cents")
+
+
+def parse_run_date(value: str) -> date:
+    return datetime.now(UTC).date() if value == "today" else date.fromisoformat(value)
 
 
 def schema(topic: str) -> StructType:
