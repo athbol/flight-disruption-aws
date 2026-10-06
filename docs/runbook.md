@@ -139,15 +139,21 @@ Every alert goes to the `fda-alerts` email subscription.
 
 ### Test the heartbeat alarm
 
-On the VPS, stop the consumer, wait for the email, then start it again.
+On the VPS, stop the consumer.
 
 ```sh
 cd /opt/flight-disruption-aws && sudo docker compose stop consumer
+```
+
+Wait for the ALARM email. It arrives 10 to 15 minutes after the stop.
+Then start the consumer again.
+
+```sh
 sudo docker compose start consumer
 ```
 
-Verify: an ALARM email arrives within about 10 minutes of the stop, and an OK email follows within about 10 minutes of the start.
-`aws cloudwatch describe-alarms --alarm-names fda-heartbeat-missing --query 'MetricAlarms[0].StateValue'` shows `ALARM`, then `OK`.
+Verify: an OK email arrives 10 to 15 minutes after the start.
+`aws cloudwatch describe-alarms --alarm-names fda-heartbeat-missing --query 'MetricAlarms[0].StateValue'` shows `ALARM` while the consumer is stopped, then `OK`.
 
 ### Test the Glue failure rule
 
