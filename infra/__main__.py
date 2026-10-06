@@ -13,7 +13,6 @@ from fda.raw import RAW_PREFIX
 from fda.schemas import CURATED, PARTITION_KEY
 
 GITHUB_THUMBPRINT = "6938fd4d98bab03faadb97b34396831e3780aea1"
-FDA_MODULES = ("__init__.py", "schemas.py", "curate.py")
 HIVE_PARQUET = "org.apache.hadoop.hive.ql.io.parquet"
 NAMED_QUERIES = ("disruptions_last_3_days", "passenger_journey", "delayed_flights_yesterday")
 
@@ -122,7 +121,10 @@ glue_package = aws.s3.BucketObject(
     bucket=bucket.id,
     key="artifacts/glue/fda.zip",
     source=pulumi.AssetArchive(
-        {f"fda/{module}": pulumi.FileAsset(f"../src/fda/{module}") for module in FDA_MODULES}
+        {
+            f"fda/{path.name}": pulumi.FileAsset(path)
+            for path in sorted(Path("../src/fda").glob("*.py"))
+        }
     ),
 )
 glue_logs = [
