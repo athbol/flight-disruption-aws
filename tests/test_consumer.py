@@ -1,3 +1,4 @@
+import gzip
 import json
 from types import SimpleNamespace
 
@@ -11,6 +12,7 @@ from fda.consumer import (
     HEARTBEAT,
     HEARTBEAT_SECONDS,
     METRIC_NAMESPACE,
+    REJECTED,
     STALE,
     TOPICS,
     WRITTEN,
@@ -57,13 +59,14 @@ def booking(booking_id, sequence=1):
     return {"booking_id": booking_id, "passenger_id": "P1", "sequence": sequence}
 
 
-def message(topic, offset, event, partition=0, error=None):
+def message(topic, offset, event, partition=0, error=None, raw=None):
+    value = raw if raw is not None else json.dumps(event).encode()
     return SimpleNamespace(
         topic=lambda: topic,
         partition=lambda: partition,
         offset=lambda: offset,
         timestamp=lambda: (1, TIMESTAMP_MS),
-        value=lambda: json.dumps(event).encode(),
+        value=lambda: value,
         error=lambda: error,
     )
 
@@ -147,6 +150,7 @@ def beat(counts):
     for topic in TOPICS:
         values[(topic, WRITTEN)] = 0
         values[(topic, STALE)] = 0
+        values[(topic, REJECTED)] = 0
     return values | counts
 
 
@@ -218,7 +222,7 @@ def test_clock_drives_flush_and_heartbeat(aws):
         "Dimensions": [{"Name": "Topic", "Value": "flights"}],
         "Value": 1,
     } in cloudwatch.calls[0]["MetricData"]
-    assert len(cloudwatch.calls[0]["MetricData"]) == 7
+    assert len(cloudwatch.calls[0]["MetricData"]) == 10
     assert metric_values(cloudwatch.calls[0]) == beat({("flights", WRITTEN): 1})
     assert metric_values(cloudwatch.calls[1]) == beat({("bookings", WRITTEN): 1})
 
@@ -247,3 +251,41 @@ def test_message_error_raises(aws):
     consumer = fake_consumer([message("flights", 0, flight("F1"), error="broker down")])
     with pytest.raises(KafkaException):
         run(consumer, aws.table, aws.s3, fake_cloudwatch(), BUCKET, until_drained(consumer))
+
+
+def raw_lines(s3):
+    lines = []
+    for key in bucket_keys(s3):
+        body = s3.get_object(Bucket=BUCKET, Key=key)["Body"].read()
+        lines += gzip.decompress(body).splitlines()
+    return lines
+
+
+def test_malformed_event_is_counted_kept_raw_and_skipped(aws):
+    messages = [
+        message("flights", 0, None, raw=b"{not json"),
+        message("flights", 1, None, raw=json.dumps({"sequence": 1}).encode()),
+        message("flights", 2, flight("F1")),
+    ]
+    clock, tick = fake_clock(HEARTBEAT_SECONDS / 3)
+    consumer = fake_consumer(messages, aws.s3, tick)
+    cloudwatch = fake_cloudwatch()
+    run(consumer, aws.table, aws.s3, cloudwatch, BUCKET, until_drained(consumer), clock)
+    expected = beat({("flights", REJECTED): 2, ("flights", WRITTEN): 1})
+    assert metric_values(cloudwatch.calls[0]) == expected
+    assert len(consumer.commits) == 1
+    assert raw_lines(aws.s3)[:2] == [b"{not json", b'{"sequence": 1}']
+
+
+def test_value_with_a_newline_is_rejected_and_not_kept(aws):
+    messages = [
+        message("flights", 0, None, raw=b'{"a": 1}\n{"b": 2}'),
+        message("flights", 1, flight("F1")),
+    ]
+    clock, tick = fake_clock(HEARTBEAT_SECONDS / 2)
+    consumer = fake_consumer(messages, aws.s3, tick)
+    cloudwatch = fake_cloudwatch()
+    run(consumer, aws.table, aws.s3, cloudwatch, BUCKET, until_drained(consumer), clock)
+    expected = beat({("flights", REJECTED): 1, ("flights", WRITTEN): 1})
+    assert metric_values(cloudwatch.calls[0]) == expected
+    assert raw_lines(aws.s3) == [json.dumps(flight("F1")).encode()]

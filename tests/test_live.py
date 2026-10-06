@@ -103,6 +103,17 @@ def test_item_keeps_every_field_and_drops_none():
     assert {k: v for k, v in event.items() if v is not None}.items() <= result.items()
 
 
+def test_payload_cannot_override_the_keys():
+    event = flight(1) | {"pk": "PAX#P9", "sk": "BOOKING#B9"}
+    result = item("flights", event)
+    assert (result["pk"], result["sk"]) == ("FLIGHT#GL400-2026-10-05", "STATE")
+
+
+def test_item_drops_fields_outside_the_schema():
+    result = item("tickets", ticket("P1", "T1", "B1") | {"note": "x" * 1000})
+    assert "note" not in result
+
+
 def test_sequence_stored_as_number(table):
     put_live(table, "flights", flight(3))
     assert stored(table, "FLIGHT#GL400-2026-10-05", "STATE")["sequence"] == 3
