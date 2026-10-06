@@ -1,6 +1,6 @@
 # flight-disruption-aws
 
-A small airline runs 24 flights a day. Some are delayed, some are cancelled, and the passengers on a cancelled flight are rebooked or refunded. This repo generates those events as synthetic data, streams them through Kafka, keeps a live status table in DynamoDB, archives every event in S3, and turns the archive into query-ready Parquet tables once a day with a PySpark job on Glue, queried with Athena. Everything on AWS is created by Pulumi from a GitHub Actions workflow. It is sized to run for under one dollar a month.
+A small airline runs 24 flights a day. Some are delayed, some are cancelled, and the passengers on a cancelled flight are rebooked or refunded. This repo generates those events as synthetic data, streams them through Kafka, keeps a live status table in DynamoDB, archives every event in S3, and once a day turns the archive into Parquet tables with a PySpark job on Glue, for querying in Athena. Everything on AWS is created by Pulumi from a GitHub Actions workflow. It is sized to run for under one dollar a month.
 
 I built it to show, on a public repo with no customer data, how I would rebuild the disruption pipeline I worked on at an airline. It has the same problems: events arrive out of order, twice, or late. It keeps the same split between a live store for operations and an analytical store for reporting.
 
@@ -25,25 +25,25 @@ Screenshots from the live system, in the order the data flows.
 
 <table>
 <tr>
-<td width="50%">1. <code>docker compose ps</code> on the VPS: generator, consumer and Kafka up, Kafka healthy.<br><img src="docs/screenshots/01-compose-up.png" alt="docker compose ps on the VPS"></td>
-<td width="50%">2. One booking in the live table, keyed by passenger and booking, with its sequence number.<br><img src="docs/screenshots/02-dynamodb-item.png" alt="A DynamoDB item"></td>
+<td width="50%" valign="top">1. <code>docker compose ps</code> on the VPS: generator, consumer and Kafka up, Kafka healthy.<br><img src="docs/screenshots/01-compose-up.png" alt="docker compose ps on the VPS"></td>
+<td width="50%" valign="top">2. One booking in the live table, keyed by passenger and booking, with its sequence number.<br><img src="docs/screenshots/02-dynamodb-item.png" alt="A DynamoDB item"></td>
 </tr>
 <tr>
-<td width="50%">3. Raw archive, one object per flush.<br><img src="docs/screenshots/03-s3-raw.png" alt="S3 raw prefix"></td>
-<td width="50%">4. The daily job, succeeded.<br><img src="docs/screenshots/04-glue-run.png" alt="Glue job run"></td>
+<td width="50%" valign="top">3. Raw archive, one object per flush.<br><img src="docs/screenshots/03-s3-raw.png" alt="S3 raw prefix"></td>
+<td width="50%" valign="top">4. The daily job, succeeded.<br><img src="docs/screenshots/04-glue-run.png" alt="Glue job run"></td>
 </tr>
 <tr>
-<td width="50%">5. The curated <code>flights</code> table queried in Athena, a few hours into the first day.<br><img src="docs/screenshots/05-athena-query.png" alt="Athena query"></td>
-<td width="50%">6. The <code>fda</code> dashboard: heartbeat, events written per topic, stale and rejected events (none yet) and DynamoDB write capacity.<br><img src="docs/screenshots/06-cloudwatch-dashboard.png" alt="CloudWatch dashboard"></td>
+<td width="50%" valign="top">5. The curated <code>flights</code> table queried in Athena, a few hours into the first day.<br><img src="docs/screenshots/05-athena-query.png" alt="Athena query"></td>
+<td width="50%" valign="top">6. The <code>fda</code> dashboard: heartbeat, events written per topic, stale and rejected events (none yet) and DynamoDB write capacity.<br><img src="docs/screenshots/06-cloudwatch-dashboard.png" alt="CloudWatch dashboard"></td>
 </tr>
 <!-- 07-alarm-email.png is added with the passenger example on 2026-10-07 -->
 <tr>
-<td width="50%">8. One CI run on main: the tests, then the deploy job.<br><img src="docs/screenshots/08-github-actions-green.png" alt="GitHub Actions"></td>
-<td width="50%">9. The Pulumi step of that deploy: one resource updated, one replaced, 47 unchanged.<br><img src="docs/screenshots/09-pulumi-up.png" alt="Pulumi up in CI"></td>
+<td width="50%" valign="top">8. One CI run on main: the tests, then the deploy job.<br><img src="docs/screenshots/08-github-actions-green.png" alt="GitHub Actions"></td>
+<td width="50%" valign="top">9. The Pulumi step of that deploy: one resource updated, one replaced, 47 unchanged.<br><img src="docs/screenshots/09-pulumi-up.png" alt="Pulumi up in CI"></td>
 </tr>
 <tr>
-<td width="50%">10. The 1 USD monthly budget.<br><img src="docs/screenshots/10-budget.png" alt="Budget"></td>
-<td width="50%"></td>
+<td width="50%" valign="top">10. The 1 USD monthly budget.<br><img src="docs/screenshots/10-budget.png" alt="Budget"></td>
+<td width="50%" valign="top"></td>
 </tr>
 </table>
 
@@ -72,7 +72,7 @@ Events arrive twice. Event ids are UUIDv5 of seed, entity and sequence, so a re-
 
 Events arrive late. The generator delays some events by up to 36 hours and holds some cancellations for a few hours. The daily job therefore reads the last four days of the archive, rebuilds journeys for flights in that window, and overwrites only those date partitions. A flight that got its last event two days after it flew ends up correct on the next run, with no manual backfill. The archive is partitioned by the day an event arrived and the curated tables by flight date, so a late event lands in today's folder and still rewrites its flight's day. A flight older than the window is skipped, so a late event never overwrites a finished day with partial data.
 
-The consumer commits Kafka offsets only after the S3 upload. It buffers events and uploads them to S3 every 5000 records, every 16 MB or every five minutes, whichever comes first. It commits Kafka offsets only after the upload succeeds. A crash before the commit replays everything since the last commit, up to five minutes of events, and the two rules above absorb the replay. The archive can therefore hold duplicate lines.
+The consumer commits Kafka offsets only after the S3 upload succeeds. It buffers events and uploads them to S3 every 5000 records, every 16 MB or every five minutes, whichever comes first. A crash before the commit replays everything since the last commit, up to five minutes of events, and the two rules above absorb the replay. The archive can therefore hold duplicate lines.
 
 Each step has its own narrow IAM identity. The consumer has one IAM user that can write to one table, one S3 prefix and one metric namespace, and only from the VPS address. The daily job has a role that reads `raw/` and writes `curated/`. GitHub Actions assumes a deploy role through OIDC on pushes to `main` and a read-only role on pull requests. Every role or user the deploy role creates must carry a permissions boundary that has no IAM or STS rights, so CI cannot escalate through a new identity.
 
@@ -99,7 +99,7 @@ Estimated monthly cost at this volume, before any credits. Measured figures repl
 | Service | Use | USD / month |
 |---------|-----|-------------|
 | DynamoDB | 5 read and 5 write units, provisioned | 0 (always-free tier) |
-| Glue | one Flex run a day, about 4 DPU-minutes (0.07 DPU-hours measured) | ~0.60 |
+| Glue | one Flex run a day, about 5 DPU-minutes (0.07 to 0.08 DPU-hours measured) | ~0.70 |
 | S3 | a few MB, plus PUT requests from the consumer and CloudTrail | ~0.10 |
 | Athena | KBs scanned per query | ~0 |
 | CloudWatch | 10 custom metrics, 2 alarms, 1 dashboard | 0 (free tier) |

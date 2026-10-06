@@ -10,7 +10,7 @@ Cost: one broker, no replication, and the broker lives outside AWS. The consumer
 
 ## Glue, not EMR or a Lambda
 
-The curate step is one Spark job that runs once a day for two to three minutes. Glue charges by the DPU-second with no cluster to keep running, and the Flex execution class cuts the rate by about a third for a job that can wait a few minutes to start. EMR Serverless would work too, but it needs an application, a VPC decision and more IAM for the same job. A Lambda with pandas would be cheaper still, but the job is written in PySpark on purpose: the join and window logic is the part worth showing.
+The curate step is one Spark job that runs once a day for two to four minutes. Glue charges by the DPU-second with no cluster to keep running, and the Flex execution class cuts the rate by about a third for a job that can wait a few minutes to start. EMR Serverless would work too, but it needs an application, a VPC decision and more IAM for the same job. A Lambda with pandas would be cheaper still, but the job is written in PySpark on purpose: the join and window logic is the part worth showing.
 
 Cost: Flex starts when spare capacity is free, so the start time is not guaranteed, and Glue 5.0 pins the code to Python 3.11.
 
@@ -24,11 +24,11 @@ Cost: at-least-once, so the archive can hold duplicate lines, and the live table
 
 The curated tables have one partition key, `flight_date`, with one value per day. Partition projection tells Athena the pattern and the date range, so no crawler runs and no partition is registered. The job's dynamic partition overwrite writes straight to the path Athena expects.
 
-Cost: the projection range starts at a fixed date and ends at `NOW`, and a wrong `storage.location.template` fails silently with empty results, and the curate tests pin the `flight_date=YYYY-MM-DD` folder names the template points at.
+Cost: the projection range starts at a fixed date and ends at `NOW`. A wrong `storage.location.template` fails silently with empty results. The curate tests pin the `flight_date=YYYY-MM-DD` folder names it points at, but not the template itself.
 
 ## Provisioned 5/5, not on-demand
 
-The live table is in the DynamoDB always-free tier at 5 read and 5 write capacity units. The consumer writes 1,500 to 1,950 items a day, about 95% of them between midnight and 05:30 UTC while the day's bookings and rebookings arrive. The busiest second of a day usually has five to seven writes and at most nine, and DynamoDB burst capacity absorbs peaks that short. On-demand would also cost close to nothing here, but it is not free, and a throttle alarm makes the provisioned limit visible if the volume ever grows.
+The live table is in the DynamoDB always-free tier at 5 read and 5 write capacity units. The consumer writes 1,500 to 1,950 items a day, about 95% of them between midnight and 05:30 UTC while the day's bookings and rebookings arrive. The busiest second of each day comes right after midnight, when the day's 24 flights are scheduled. It has five to seven writes on most days and at most eleven in a year of plans. DynamoDB keeps up to five minutes of unused capacity as burst credit, which absorbs peaks that short. On-demand would also cost close to nothing here, but it is not free, and a throttle alarm makes the provisioned limit visible if the volume ever grows.
 
 Cost: a sustained rate above 5 writes a second, such as a catch-up after the consumer was down, is throttled and retried by boto3. The alarm emails if that happens.
 
@@ -46,6 +46,6 @@ Cost: changes to the deploy role, the boundary, the OIDC provider, the CloudTrai
 
 ## Deterministic generator instead of recorded data
 
-The generator plans a whole day from a random generator seeded with the seed and the date. The same seed and date produce the same flights, passengers, outcomes, lags and duplicates on every machine. Tests assert exact counts, the daily job can be re-run against a known day, and nothing in the repo came from a real system.
+The generator seeds Python's `random.Random` with the seed and the date and plans the whole day from it. The same seed and date produce the same flights, passengers, outcomes, lags and duplicates on every machine. Tests assert exact counts, the daily job can be re-run against a known day, and nothing in the repo came from a real system.
 
 Cost: the data has no seasonality and only six routes, and a generator restart in the middle of a day skips the emissions that were due while it was down.
