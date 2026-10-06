@@ -1,3 +1,6 @@
+LONG_FIELDS = ("sequence", "delay_minutes", "amount_cents")
+PARTITION_KEY = "flight_date"
+
 ENVELOPE = ("event_id", "event_type", "event_time", "sequence")
 
 FLIGHT = ENVELOPE + (
@@ -33,15 +36,6 @@ JOURNEYS = (
     "amount_cents",
     "disruption",
 )
-FLIGHTS = (
-    "flight_id",
-    "flight_no",
-    "flight_date",
-    "origin",
-    "destination",
-    "scheduled_departure",
-    "delay_minutes",
-    "flight_status",
-)
+FLIGHTS = FLIGHT[len(ENVELOPE) :] + ("flight_status",)
 
 CURATED = {"journeys": JOURNEYS, "flights": FLIGHTS}

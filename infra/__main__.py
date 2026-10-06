@@ -8,6 +8,7 @@ import pulumi
 import pulumi_aws as aws
 
 from fda.consumer import HEARTBEAT, METRIC_NAMESPACE
+from fda.schemas import PARTITION_KEY
 
 GITHUB_OIDC_URL = "https://token.actions.githubusercontent.com"
 GITHUB_THUMBPRINT = "6938fd4d98bab03faadb97b34396831e3780aea1"
@@ -172,13 +173,13 @@ for name in ("journeys", "flights"):
         parameters={
             "classification": "parquet",
             "projection.enabled": "true",
-            "projection.flight_date.type": "date",
-            "projection.flight_date.format": "yyyy-MM-dd",
-            "projection.flight_date.range": "2026-10-01,NOW",
-            "projection.flight_date.interval": "1",
-            "projection.flight_date.interval.unit": "DAYS",
+            f"projection.{PARTITION_KEY}.type": "date",
+            f"projection.{PARTITION_KEY}.format": "yyyy-MM-dd",
+            f"projection.{PARTITION_KEY}.range": "2026-10-01,NOW",
+            f"projection.{PARTITION_KEY}.interval": "1",
+            f"projection.{PARTITION_KEY}.interval.unit": "DAYS",
             "storage.location.template": pulumi.Output.format(
-                "{0}flight_date=${{flight_date}}", location
+                "{0}{1}=${{{1}}}", location, PARTITION_KEY
             ),
         },
     )

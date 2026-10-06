@@ -5,11 +5,10 @@ from pyspark.sql import Window
 from pyspark.sql.functions import col, row_number, when
 from pyspark.sql.types import LongType, StringType, StructField, StructType
 
-from fda.schemas import FLIGHTS, JOURNEYS, TOPICS
+from fda.schemas import FLIGHTS, JOURNEYS, LONG_FIELDS, PARTITION_KEY, TOPICS
 
 LOOKBACK_DAYS = 3
 LATE_DAYS = 2
-LONG_FIELDS = ("sequence", "delay_minutes", "amount_cents")
 
 
 def parse_run_date(value: str) -> date:
@@ -90,14 +89,14 @@ def journeys(bookings, flights, tickets):
 
 def in_window(df, run_date: date, lookback_days: int):
     first = (run_date - timedelta(days=lookback_days)).isoformat()
-    return df.filter(col("flight_date").between(first, run_date.isoformat()))
+    return df.filter(col(PARTITION_KEY).between(first, run_date.isoformat()))
 
 
 def write(df, curated_root: str, name: str):
     (
         df.write.mode("overwrite")
         .option("partitionOverwriteMode", "dynamic")
-        .partitionBy("flight_date")
+        .partitionBy(PARTITION_KEY)
         .parquet(f"{curated_root}/{name}")
     )
 

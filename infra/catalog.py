@@ -1,12 +1,9 @@
-from fda.schemas import CURATED
-
-PARTITION_KEY = "flight_date"
-BIGINT_FIELDS = ("delay_minutes", "amount_cents")
+from fda.schemas import CURATED, LONG_FIELDS, PARTITION_KEY
 
 
 def columns(table):
     return [
-        {"name": field, "type": "bigint" if field in BIGINT_FIELDS else "string"}
+        {"name": field, "type": "bigint" if field in LONG_FIELDS else "string"}
         for field in CURATED[table]
         if field != PARTITION_KEY
     ]
