@@ -16,7 +16,7 @@ HIVE_PARQUET = "org.apache.hadoop.hive.ql.io.parquet"
 NAMED_QUERIES = ("disruptions_last_3_days", "passenger_journey", "delayed_flights_yesterday")
 
 config = pulumi.Config("fda")
-vps_ip = config.require("vps_ip")
+vps_ip = config.require_secret("vps_ip")
 alert_email = config.require_secret("alert_email")
 account = aws.get_caller_identity().account_id
 region = aws.get_region().region
@@ -77,8 +77,8 @@ consumer = aws.iam.User("consumer", name="fda-consumer")
 aws.iam.UserPolicy(
     "consumer-policy",
     user=consumer.name,
-    policy=pulumi.Output.all(table.arn, bucket.arn).apply(
-        lambda arns: json.dumps(iam.consumer_policy(arns[0], arns[1], vps_ip))
+    policy=pulumi.Output.all(table.arn, bucket.arn, vps_ip).apply(
+        lambda args: json.dumps(iam.consumer_policy(*args))
     ),
 )
 consumer_key = aws.iam.AccessKey("consumer-key", user=consumer.name)
