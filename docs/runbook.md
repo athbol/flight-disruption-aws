@@ -2,8 +2,8 @@
 
 ## VPS
 
-The generator, Kafka and the consumer run as a Docker Compose stack on the VPS (your SSH alias), logged in as your deploy user.
-Your deploy user is not in the docker group, so every Docker command uses `sudo`.
+The generator, Kafka and the consumer run as a Docker Compose stack on the VPS (your SSH alias), logged in as your non-root SSH user.
+That user is not in the docker group, so every Docker command uses `sudo`.
 Nothing listens on the host. The containers talk over the compose network.
 
 ### First install
@@ -215,5 +215,6 @@ Verify: `aws iam list-access-keys --user-name fda-consumer` shows one key, and [
 ### Accepted limitations
 
 * CI can still create `fda-` roles and users, but only inside the boundary, so they never reach IAM, STS or services outside it.
-* CI deploys with a personal Pulumi access token stored as a GitHub secret. Anyone who can run a workflow on `main` can use it.
+* CI uses a personal Pulumi access token stored as a GitHub secret. The deploy job on `main` and the preview job on same-repo pull requests both hold it, so anyone who can run either can use it.
 * The consumer key is a long-lived access key. It works only from the VPS IP address and only on the live table, the `raw/` prefix and our metrics.
+* A compromised CI run could leave a way back in through an `fda-` identity it created or changed. After a suspected CI compromise, review the trust policies and access keys of every `fda-` role and user.
