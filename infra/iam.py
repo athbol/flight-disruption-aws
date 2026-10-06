@@ -125,6 +125,7 @@ def deploy_policy(account):
         f"{iam}:instance-profile/fda-*",
     ]
     boundary = {"StringEquals": {"iam:PermissionsBoundary": f"{iam}:policy/fda-boundary"}}
+    trail_bucket = f"arn:aws:s3:::fda-{account}-trail"
     return policy(
         [
             allow(
@@ -194,6 +195,17 @@ def deploy_policy(account):
                     "budgets:DeleteBudget",
                 ],
                 ["*"],
+            ),
+            deny(["s3:DeleteObject", "s3:DeleteObjectVersion"], [f"{trail_bucket}/*"]),
+            deny(
+                [
+                    "s3:DeleteBucket",
+                    "s3:PutBucketPolicy",
+                    "s3:DeleteBucketPolicy",
+                    "s3:PutLifecycleConfiguration",
+                    "s3:PutBucketVersioning",
+                ],
+                [trail_bucket],
             ),
         ]
     )
