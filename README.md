@@ -63,7 +63,7 @@ Duplicates. Event ids are UUIDv5 of seed, entity and sequence, so a re-sent even
 
 Late data. The generator delays some events by up to 36 hours and holds some cancellations for a few hours. The daily job therefore reads the last four days of the archive, rebuilds journeys for flights in that window, and overwrites only those date partitions. A flight that got its last event two days after it flew ends up correct on the next run, with no manual backfill.
 
-Offsets after the flush. The consumer buffers events and uploads them to S3 every 5000 records or every five minutes. It commits Kafka offsets only after the upload succeeds. A crash between the two replays a few events, and the two mechanisms above absorb the replay. The trade is at-least-once for never losing an event.
+Offsets after the flush. The consumer buffers events and uploads them to S3 every 5000 records, every 16 MB or every five minutes, whichever comes first. It commits Kafka offsets only after the upload succeeds. A crash between the two replays a few events, and the two mechanisms above absorb the replay. The trade is at-least-once for never losing an event.
 
 Least privilege per step. The consumer has one IAM user that can write to one table, one S3 prefix and one metric namespace, and only from the VPS address. The Glue job has a role that reads `raw/` and writes `curated/`. GitHub Actions assumes a deploy role through OIDC on pushes to `main` and a read-only role on pull requests. Anything the deploy role creates must carry a permissions boundary that has no IAM or STS rights, so CI cannot escalate through a new identity.
 
@@ -104,6 +104,7 @@ The VPS is shared with other projects and not counted.
 * An event that arrives more than two days after its flight is left out of the curated tables for good.
 * One Kafka broker on one box. Kafka itself is a single point of failure, which is fine for a demo and wrong for a product.
 * No schema registry. The three schemas live in `src/fda/schemas.py` and every module reads them from there.
+* The two stores can still disagree on a malformed event. The consumer rejects an event with a decimal in a whole-number field, while the daily job keeps it with that field empty. Both drop an event with no `event_id`.
 * If the generator is down for part of a day, the bookings for a flight whose events were all skipped do not show up in `journeys` for that day.
 * CI can create new `fda-` roles and users. The permissions boundary stops them from reaching IAM or STS, but it does not stop them from existing.
 * CI deploys with a personal Pulumi access token stored as a GitHub secret.
