@@ -134,7 +134,7 @@ Dashboard: https://eu-central-1.console.aws.amazon.com/cloudwatch/home?region=eu
 Every alert goes to the `fda-alerts` email subscription.
 
 * `fda-heartbeat-missing` fires when the consumer sends no heartbeat for two 5-minute periods in a row. It emails again when the heartbeat comes back.
-* `fda-dynamodb-throttles` fires when any `PutItem` on `fda-live` is throttled in a 5-minute period.
+* `fda-dynamodb-throttles` fires when any write to `fda-live` is throttled in a 5-minute period.
 * The EventBridge rule `fda-glue-failed` emails when `fda-curate` ends in `FAILED`, `TIMEOUT` or `ERROR`.
 
 ### Test the heartbeat alarm
