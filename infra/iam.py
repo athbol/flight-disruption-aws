@@ -226,6 +226,24 @@ def tls_only(bucket_arn):
     return policy([{"Principal": "*"} | statement | {"Condition": condition}])
 
 
+def trail_bucket_policy(bucket_arn, trail_arn, account):
+    trail = {"Service": "cloudtrail.amazonaws.com"}
+    from_trail = {"aws:SourceArn": trail_arn}
+    owner = {"s3:x-amz-acl": "bucket-owner-full-control"}
+    return policy(
+        [
+            {"Principal": trail}
+            | allow(["s3:GetBucketAcl"], [bucket_arn], {"StringEquals": from_trail}),
+            {"Principal": trail}
+            | allow(
+                ["s3:PutObject"],
+                [f"{bucket_arn}/AWSLogs/{account}/*"],
+                {"StringEquals": from_trail | owner},
+            ),
+        ]
+    )
+
+
 def service_publish(sid, service, topic_arn, source_arns):
     condition = {"ArnEquals": {"aws:SourceArn": source_arns}}
     statement = allow(["sns:Publish"], [topic_arn], condition)
