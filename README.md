@@ -25,21 +25,21 @@ Screenshots from the live system, in the order the data flows.
 
 <table>
 <tr>
-<td width="50%">1. The three containers on the VPS. Kafka is healthy.<br><img src="docs/screenshots/01-compose-up.png" alt="docker compose ps on the VPS"></td>
-<td width="50%">2. One booking in the live table.<br><img src="docs/screenshots/02-dynamodb-item.png" alt="A DynamoDB item"></td>
+<td width="50%">1. <code>docker compose ps</code> on the VPS: generator, consumer and Kafka up, Kafka healthy.<br><img src="docs/screenshots/01-compose-up.png" alt="docker compose ps on the VPS"></td>
+<td width="50%">2. One booking in the live table, keyed by passenger and booking, with its sequence number.<br><img src="docs/screenshots/02-dynamodb-item.png" alt="A DynamoDB item"></td>
 </tr>
 <tr>
 <td width="50%">3. Raw archive, one object per flush.<br><img src="docs/screenshots/03-s3-raw.png" alt="S3 raw prefix"></td>
 <td width="50%">4. The daily job, succeeded.<br><img src="docs/screenshots/04-glue-run.png" alt="Glue job run"></td>
 </tr>
 <tr>
-<td width="50%">5. The curated <code>flights</code> table queried in Athena on the first day: six flights so far, one of them delayed.<br><img src="docs/screenshots/05-athena-query.png" alt="Athena query"></td>
-<td width="50%">6. Heartbeat, events written and stale events skipped.<br><img src="docs/screenshots/06-cloudwatch-dashboard.png" alt="CloudWatch dashboard"></td>
+<td width="50%">5. The curated <code>flights</code> table queried in Athena, a few hours into the first day.<br><img src="docs/screenshots/05-athena-query.png" alt="Athena query"></td>
+<td width="50%">6. The <code>fda</code> dashboard: heartbeat, events written per topic, stale and rejected events (none yet) and DynamoDB write capacity.<br><img src="docs/screenshots/06-cloudwatch-dashboard.png" alt="CloudWatch dashboard"></td>
 </tr>
 <!-- 07-alarm-email.png is added with the passenger example on 2026-10-07 -->
 <tr>
-<td width="50%">8. Every push to main runs the tests and then <code>pulumi up</code>.<br><img src="docs/screenshots/08-github-actions-green.png" alt="GitHub Actions"></td>
-<td width="50%">9. The Pulumi step of that deploy: one resource changed, 48 unchanged.<br><img src="docs/screenshots/09-pulumi-up.png" alt="Pulumi up in CI"></td>
+<td width="50%">8. One CI run on main: the tests, then the deploy job.<br><img src="docs/screenshots/08-github-actions-green.png" alt="GitHub Actions"></td>
+<td width="50%">9. The Pulumi step of that deploy: one resource updated, one replaced, 47 unchanged.<br><img src="docs/screenshots/09-pulumi-up.png" alt="Pulumi up in CI"></td>
 </tr>
 <tr>
 <td width="50%">10. The 1 USD monthly budget.<br><img src="docs/screenshots/10-budget.png" alt="Budget"></td>
