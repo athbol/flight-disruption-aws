@@ -170,3 +170,50 @@ Verify: `aws glue get-job-runs --job-name fda-curate --max-items 1 --query 'JobR
 There is no safe way to force throttling on the live table, so this alarm is not tested by hand.
 
 Verify: `aws cloudwatch describe-alarms --alarm-names fda-dynamodb-throttles --query 'MetricAlarms[0].StateValue'` shows `OK`.
+
+## Security
+
+### Permissions boundary
+
+CI deploys with the `fda-gha-deploy` role. It can create and change IAM roles, users and policies whose names start with `fda-`, so it could otherwise grant itself anything through a new identity.
+The managed policy `fda-boundary` caps that. It allows only S3, DynamoDB, Glue, Athena, CloudWatch Logs, CloudWatch, EventBridge and SNS, and nothing in IAM or STS.
+The deploy role can create an `fda-` role or user, or put or attach a policy on one, only when that identity carries `fda-boundary`.
+It cannot remove a boundary, change `fda-boundary` itself, change its own roles or the GitHub OIDC provider, stop or change the CloudTrail trail, or change or delete the budget.
+
+These changes are applied from the laptop with admin credentials, never by CI:
+
+* anything on `fda-gha-deploy`, `fda-gha-preview` or their policies
+* `fda-boundary`
+* the GitHub OIDC provider
+* changes to the `fda` trail or the `fda-monthly` budget
+
+```sh
+pulumi preview --stack prod
+pulumi up --stack prod
+```
+
+Verify: the next CI deploy on `main` succeeds with no changes left.
+
+### MFA
+
+Admin credentials on the laptop are used only in a session that signed in with MFA.
+The root user has MFA and no access keys.
+CI never holds long-lived AWS keys. It assumes its roles through GitHub OIDC.
+
+### Rotate the consumer key
+
+1. Rename the `aws.iam.AccessKey` resource in `infra/__main__.py`, for example `consumer-key-2` to `consumer-key-3`, and merge.
+   The deploy creates the new key and deletes the old one, so the consumer stops writing until step 2.
+2. Reinstall `.env` on the VPS with the command in [First install](#first-install) step 2, then restart the consumer.
+
+   ```sh
+   cd /opt/flight-disruption-aws && sudo docker compose up -d --force-recreate consumer
+   ```
+
+Verify: `aws iam list-access-keys --user-name fda-consumer` shows one key, and [Checks](#checks) steps 2 to 5 pass.
+
+### Accepted limitations
+
+* CI can still create `fda-` roles and users, but only inside the boundary, so they never reach IAM, STS or services outside it.
+* CI deploys with a personal Pulumi access token stored as a GitHub secret. Anyone who can run a workflow on `main` can use it.
+* The consumer key is a long-lived access key. It works only from the VPS IP address and only on the live table, the `raw/` prefix and our metrics.
