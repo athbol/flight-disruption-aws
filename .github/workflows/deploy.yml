@@ -1,12 +1,13 @@
-name: CI
+name: Deploy
 
 on:
-  pull_request:
   push:
     branches: [main]
 
 permissions:
   contents: read
+
+concurrency: deploy
 
 jobs:
   test:
@@ -14,14 +15,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0
-      - run: uv sync --locked
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
+      - run: uv sync --locked --group infra
       - run: uv run pytest
 
-  preview:
+  deploy:
     needs: test
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -32,11 +30,11 @@ jobs:
       - run: uv sync --locked --group infra
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_PREVIEW_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: eu-central-1
       - uses: pulumi/actions@v6
         with:
-          command: preview
+          command: up
           stack-name: athbol-projects/flight-disruption-aws/prod
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
