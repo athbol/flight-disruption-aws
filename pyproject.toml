@@ -10,7 +10,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "moto[dynamodb,s3]",
-    "pyspark==3.5.*",
+    "pyspark==4.2.*",
     "pytest",
     "ruff",
 ]
