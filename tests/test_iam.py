@@ -199,3 +199,8 @@ def test_alerts_events_publish_only_from_the_glue_rule():
 def test_alerts_cloudwatch_publishes_only_from_our_alarms():
     cloudwatch = alerts()["Statement"][1]
     assert cloudwatch["Condition"] == {"ArnEquals": {"aws:SourceArn": ALARM_ARNS}}
+
+
+def test_alerts_statements_have_unique_sids():
+    sids = [statement.get("Sid") for statement in alerts()["Statement"]]
+    assert sids == ["EventsPublish", "AlarmsPublish"]
