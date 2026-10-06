@@ -49,7 +49,7 @@ def test_dynamodb_widget_shows_writes_and_throttles_for_the_table():
     *_, dynamodb = widgets("metric")
     assert metrics(dynamodb) == [
         ("AWS/DynamoDB", "ConsumedWriteCapacityUnits", "TableName", TABLE),
-        ("AWS/DynamoDB", "ThrottledRequests", "TableName", TABLE),
+        ("AWS/DynamoDB", "ThrottledRequests", "TableName", TABLE, "Operation", "PutItem"),
     ]
 
 
