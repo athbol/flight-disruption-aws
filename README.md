@@ -15,7 +15,7 @@ I built it to show, on a public repo with no customer data, how I would rebuild 
 | A consumer writes the newest state of each flight, booking and ticket | DynamoDB table `fda-live` | Writes are idempotent and safe against out-of-order delivery |
 | The same consumer archives every event as gzip JSONL, partitioned by topic and day, and commits Kafka offsets only after the archive write succeeds | S3 `raw/` | At-least-once delivery with no lost events |
 | A daily PySpark job dedupes the archive, keeps the latest version of each entity, joins them into passenger journeys and rewrites the last four days as Parquet | Glue 5.0, 2 workers, Flex | Late and duplicate events are repaired without a backfill |
-| Saved queries answer "which journeys were disrupted" and "what happened to this passenger" | Athena, Glue catalog with partition projection | Analysts query it with plain SQL and nothing to keep running |
+| Saved queries answer "which journeys were disrupted", "which flights were late yesterday" and "what happened to this passenger" | Athena, Glue catalog with partition projection | Analysts query it with plain SQL and nothing to keep running |
 
 Pulumi describes all of it in `infra/`. A push to `main` runs `pulumi up` through GitHub Actions, which gets its AWS credentials from OIDC instead of stored keys. CloudWatch alarms and an EventBridge rule send an email when the consumer stops, when DynamoDB throttles, or when the Glue job fails.
 
@@ -48,7 +48,7 @@ The DynamoDB item is the latest event for that booking, keyed `PAX#<passenger>` 
 { "pk": "PAX#...", "sk": "BOOKING#...", "event_type": "rebooked", "sequence": 2, "flight_id": "...", "original_flight_id": "..." }
 ```
 
-The Athena row joins that booking with both flights and the ticket, and classifies the journey:
+The Athena row, from `sql/passenger_journey.sql`, joins that booking with both flights and the ticket, and classifies the journey:
 
 ```
 passenger_id | flight_id | flight_status | booking_status | original_flight_id | original_flight_status | ticket_status | disruption
@@ -81,7 +81,7 @@ uv run pytest
 
 The tests cover the generator plan, the DynamoDB write rule, the S3 layout, the consumer loop, the Spark job and every IAM policy. The consumer and DynamoDB tests run against moto, so there is no AWS account involved.
 
-Deploying the real thing needs an AWS account, a Pulumi account and a host for the Docker Compose stack. `docs/runbook.md` has the steps, the checks and how to test each alarm.
+Deploying the real thing needs an AWS account, a Pulumi account and a host for the Docker Compose stack. `docs/runbook.md` has the steps, the checks and how to test each alarm. The three saved Athena queries are in `sql/`: disruptions over the last three days, delayed flights yesterday, and one passenger's journeys.
 
 ## Cost
 
