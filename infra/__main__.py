@@ -124,7 +124,7 @@ glue_logs = [
 ]
 curate_job = aws.glue.Job(
     "curate",
-    name="fda-curate",
+    name=dashboard.CURATE_JOB,
     role_arn=glue_role.arn,
     glue_version="5.0",
     worker_type="G.1X",
@@ -212,7 +212,7 @@ aws.sns.TopicSubscription("alerts-email", topic=alerts.arn, protocol="email", en
 
 heartbeat_alarm = aws.cloudwatch.MetricAlarm(
     "heartbeat-missing",
-    name="fda-heartbeat-missing",
+    name=dashboard.HEARTBEAT_ALARM,
     alarm_description="The consumer stopped publishing. Check docker compose ps on the VPS.",
     namespace=METRIC_NAMESPACE,
     metric_name=HEARTBEAT,
@@ -227,7 +227,7 @@ heartbeat_alarm = aws.cloudwatch.MetricAlarm(
 )
 throttle_alarm = aws.cloudwatch.MetricAlarm(
     "dynamodb-throttles",
-    name="fda-dynamodb-throttles",
+    name=dashboard.THROTTLE_ALARM,
     namespace="AWS/DynamoDB",
     metric_name="WriteThrottleEvents",
     dimensions={"TableName": table.name},
@@ -241,12 +241,12 @@ throttle_alarm = aws.cloudwatch.MetricAlarm(
 )
 glue_failed = aws.cloudwatch.EventRule(
     "glue-failed",
-    name="fda-glue-failed",
+    name=dashboard.GLUE_RULE,
     event_pattern=json.dumps(
         {
             "source": ["aws.glue"],
             "detail-type": ["Glue Job State Change"],
-            "detail": {"jobName": ["fda-curate"], "state": ["FAILED", "TIMEOUT", "ERROR"]},
+            "detail": {"jobName": [dashboard.CURATE_JOB], "state": ["FAILED", "TIMEOUT", "ERROR"]},
         }
     ),
 )
