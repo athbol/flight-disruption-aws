@@ -1,8 +1,9 @@
 import json
 import sys
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
+import catalog
 import pytest
 from pyspark.sql import SparkSession
 
@@ -288,3 +289,32 @@ def test_run_succeeds_with_missing_raw_days(spark, tmp_path):
 
     expected = [f"flight_date={day(-1)}", f"flight_date={day(0)}"]
     assert partitions(curated_root, "journeys") == expected
+
+
+def test_parse_run_date_reads_today_or_iso_date():
+    assert curate.parse_run_date("today") == datetime.now(UTC).date()
+    assert curate.parse_run_date("2026-10-05") == date(2026, 10, 5)
+
+
+@pytest.mark.parametrize("name", ["journeys", "flights"])
+def test_written_parquet_matches_catalog_table(spark, tmp_path, name):
+    raw_root = write_raw(tmp_path, journey_events(day(0)))
+    curated_root = tmp_path / "curated"
+
+    curate.run(spark, raw_root, str(curated_root), RUN_DATE)
+
+    table = spark.read.parquet(str(curated_root / name))
+    one_day = spark.read.parquet(str(curated_root / name / f"flight_date={day(0)}"))
+    written = [{"name": f.name, "type": f.dataType.simpleString()} for f in one_day.schema]
+    assert written == catalog.columns(name)
+    assert table.columns[-1:] == [key["name"] for key in catalog.partition_keys()]
+
+
+def test_run_succeeds_before_a_topic_has_raw_files(spark, tmp_path):
+    raw_root = write_raw(tmp_path, [("flights", day(0), flight(day(0)))])
+    curated_root = tmp_path / "curated"
+
+    curate.run(spark, raw_root, str(curated_root), RUN_DATE)
+
+    assert partitions(curated_root, "journeys") == []
+    assert partitions(curated_root, "flights") == [f"flight_date={day(0)}"]

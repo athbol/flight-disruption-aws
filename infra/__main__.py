@@ -1,11 +1,16 @@
 import json
+from pathlib import Path
 
+import catalog
 import iam
 import pulumi
 import pulumi_aws as aws
 
 GITHUB_OIDC_URL = "https://token.actions.githubusercontent.com"
 GITHUB_THUMBPRINT = "6938fd4d98bab03faadb97b34396831e3780aea1"
+FDA_MODULES = ("__init__.py", "schemas.py", "curate.py")
+HIVE_PARQUET = "org.apache.hadoop.hive.ql.io.parquet"
+NAMED_QUERIES = ("disruptions_last_3_days", "passenger_journey", "delayed_flights_yesterday")
 
 config = pulumi.Config("fda")
 vps_ip = config.require("vps_ip")
@@ -96,6 +101,109 @@ aws.iam.RolePolicy(
     role=glue_role.id,
     policy=bucket.arn.apply(lambda arn: json.dumps(iam.glue_policy(arn, region, account))),
 )
+
+glue_script = aws.s3.BucketObject(
+    "glue-script",
+    bucket=bucket.id,
+    key="artifacts/glue/glue_curate.py",
+    source=pulumi.FileAsset("../jobs/glue_curate.py"),
+)
+glue_package = aws.s3.BucketObject(
+    "glue-package",
+    bucket=bucket.id,
+    key="artifacts/glue/fda.zip",
+    source=pulumi.AssetArchive(
+        {f"fda/{module}": pulumi.FileAsset(f"../src/fda/{module}") for module in FDA_MODULES}
+    ),
+)
+glue_logs = [
+    aws.cloudwatch.LogGroup(f"glue-{name}", name=f"/aws-glue/jobs/{name}", retention_in_days=7)
+    for name in ("output", "error")
+]
+curate_job = aws.glue.Job(
+    "curate",
+    name="fda-curate",
+    role_arn=glue_role.arn,
+    glue_version="5.0",
+    worker_type="G.1X",
+    number_of_workers=2,
+    execution_class="FLEX",
+    timeout=15,
+    max_retries=0,
+    command={
+        "name": "glueetl",
+        "script_location": pulumi.Output.format("s3://{0}/{1}", bucket.bucket, glue_script.key),
+        "python_version": "3",
+    },
+    default_arguments={
+        "--extra-py-files": pulumi.Output.format("s3://{0}/{1}", bucket.bucket, glue_package.key),
+        "--RAW_ROOT": pulumi.Output.format("s3://{0}/raw", bucket.bucket),
+        "--CURATED_ROOT": pulumi.Output.format("s3://{0}/curated", bucket.bucket),
+        "--RUN_DATE": "today",
+        "--job-language": "python",
+    },
+    opts=pulumi.ResourceOptions(depends_on=glue_logs),
+)
+aws.glue.Trigger(
+    "curate-daily",
+    name="fda-curate-daily",
+    type="SCHEDULED",
+    schedule="cron(30 2 * * ? *)",
+    start_on_creation=True,
+    actions=[{"job_name": curate_job.name}],
+)
+
+database = aws.glue.CatalogDatabase("catalog", name="fda")
+for name in ("journeys", "flights"):
+    location = pulumi.Output.format("s3://{0}/curated/{1}/", bucket.bucket, name)
+    aws.glue.CatalogTable(
+        name,
+        name=name,
+        database_name=database.name,
+        table_type="EXTERNAL_TABLE",
+        storage_descriptor={
+            "location": location,
+            "input_format": f"{HIVE_PARQUET}.MapredParquetInputFormat",
+            "output_format": f"{HIVE_PARQUET}.MapredParquetOutputFormat",
+            "ser_de_info": {"serialization_library": f"{HIVE_PARQUET}.serde.ParquetHiveSerDe"},
+            "columns": catalog.columns(name),
+        },
+        partition_keys=catalog.partition_keys(),
+        parameters={
+            "classification": "parquet",
+            "projection.enabled": "true",
+            "projection.flight_date.type": "date",
+            "projection.flight_date.format": "yyyy-MM-dd",
+            "projection.flight_date.range": "2026-10-01,NOW",
+            "projection.flight_date.interval": "1",
+            "projection.flight_date.interval.unit": "DAYS",
+            "storage.location.template": pulumi.Output.format(
+                "{0}flight_date=${{flight_date}}", location
+            ),
+        },
+    )
+
+workgroup = aws.athena.Workgroup(
+    "athena",
+    name="fda",
+    force_destroy=True,
+    configuration={
+        "enforce_workgroup_configuration": True,
+        "publish_cloudwatch_metrics_enabled": True,
+        "bytes_scanned_cutoff_per_query": 100_000_000,
+        "result_configuration": {
+            "output_location": pulumi.Output.format("s3://{0}/athena-results/", bucket.bucket)
+        },
+    },
+)
+for query in NAMED_QUERIES:
+    aws.athena.NamedQuery(
+        query,
+        name=query,
+        database=database.name,
+        workgroup=workgroup.name,
+        query=Path(f"../sql/{query}.sql").read_text(),
+    )
 
 alerts = aws.sns.Topic("alerts", name="fda-alerts")
 aws.sns.TopicSubscription("alerts-email", topic=alerts.arn, protocol="email", endpoint=alert_email)

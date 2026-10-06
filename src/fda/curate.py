@@ -1,5 +1,6 @@
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
+from pyspark.errors import AnalysisException
 from pyspark.sql import Window
 from pyspark.sql.functions import col, row_number, when
 from pyspark.sql.types import LongType, StringType, StructField, StructType
@@ -9,6 +10,10 @@ from fda.schemas import FLIGHTS, JOURNEYS, TOPICS
 LOOKBACK_DAYS = 3
 LATE_DAYS = 2
 LONG_FIELDS = ("sequence", "delay_minutes", "amount_cents")
+
+
+def parse_run_date(value: str) -> date:
+    return datetime.now(UTC).date() if value == "today" else date.fromisoformat(value)
 
 
 def schema(topic: str) -> StructType:
@@ -25,12 +30,17 @@ def days_back(run_date: date, count: int) -> list[str]:
 
 
 def read_topic(spark, raw_root: str, topic: str, days: list[str]):
-    return (
-        spark.read.schema(schema(topic))
-        .option("basePath", raw_root)
-        .json(f"{raw_root}/topic={topic}")
-        .filter(col("dt").isin(days))
-    )
+    try:
+        events = (
+            spark.read.schema(schema(topic))
+            .option("basePath", raw_root)
+            .json(f"{raw_root}/topic={topic}")
+        )
+    except AnalysisException as error:
+        if error.getErrorClass() != "PATH_NOT_FOUND":
+            raise
+        return spark.createDataFrame([], schema(topic))
+    return events.filter(col("dt").isin(days))
 
 
 def latest(df, key: str):
