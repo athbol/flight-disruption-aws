@@ -189,6 +189,8 @@ def deploy_policy(account):
                     "cloudtrail:StopLogging",
                     "cloudtrail:DeleteTrail",
                     "cloudtrail:UpdateTrail",
+                    "cloudtrail:PutEventSelectors",
+                    "cloudtrail:PutInsightSelectors",
                     "budgets:ModifyBudget",
                     "budgets:DeleteBudget",
                 ],

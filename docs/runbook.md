@@ -178,7 +178,7 @@ Verify: `aws cloudwatch describe-alarms --alarm-names fda-dynamodb-throttles --q
 CI deploys with the `fda-gha-deploy` role. It can create and change IAM roles, users and policies whose names start with `fda-`, so it could otherwise grant itself anything through a new identity.
 The managed policy `fda-boundary` caps that. It allows only S3, DynamoDB, Glue, Athena, CloudWatch Logs, CloudWatch, EventBridge and SNS, and nothing in IAM or STS.
 The deploy role can create an `fda-` role or user, or put or attach a policy on one, only when that identity carries `fda-boundary`.
-It cannot remove a boundary, change `fda-boundary` itself, change its own roles or the GitHub OIDC provider, stop or change the CloudTrail trail, or change or delete the budget.
+It cannot remove a boundary, change `fda-boundary` itself, change its own roles or the GitHub OIDC provider, stop, delete or reconfigure the CloudTrail trail, or change or delete the budget.
 
 These changes are applied from the laptop with admin credentials, never by CI:
 

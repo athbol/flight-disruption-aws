@@ -233,6 +233,8 @@ def test_deploy_cannot_stop_the_trail_or_change_the_budget():
         "cloudtrail:StopLogging",
         "cloudtrail:DeleteTrail",
         "cloudtrail:UpdateTrail",
+        "cloudtrail:PutEventSelectors",
+        "cloudtrail:PutInsightSelectors",
         "budgets:ModifyBudget",
         "budgets:DeleteBudget",
     ):
