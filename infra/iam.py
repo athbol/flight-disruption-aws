@@ -198,6 +198,28 @@ def deploy_policy(account):
     )
 
 
+def preview_deny():
+    return policy(
+        [
+            deny(
+                [
+                    "s3:GetObject",
+                    "dynamodb:GetItem",
+                    "dynamodb:Query",
+                    "dynamodb:Scan",
+                    "dynamodb:BatchGetItem",
+                    "athena:GetQueryResults",
+                    "logs:GetLogEvents",
+                    "logs:FilterLogEvents",
+                    "ssm:GetParameter*",
+                    "secretsmanager:GetSecretValue",
+                ],
+                ["*"],
+            )
+        ]
+    )
+
+
 def service_publish(sid, service, topic_arn, source_arns):
     condition = {"ArnEquals": {"aws:SourceArn": source_arns}}
     statement = allow(["sns:Publish"], [topic_arn], condition)

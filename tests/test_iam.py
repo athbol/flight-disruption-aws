@@ -274,3 +274,21 @@ def test_glue_trust_only_for_glue_in_our_account():
     assert statement["Principal"] == {"Service": "glue.amazonaws.com"}
     assert statement["Action"] == "sts:AssumeRole"
     assert statement["Condition"] == {"StringEquals": {"aws:SourceAccount": ACCOUNT}}
+
+
+def test_preview_cannot_read_data_logs_or_secrets():
+    preview = iam.preview_deny()
+    assert {statement["Effect"] for statement in preview["Statement"]} == {"Deny"}
+    assert all_resources(preview) == {"*"}
+    assert all_actions(preview) == {
+        "s3:GetObject",
+        "dynamodb:GetItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:BatchGetItem",
+        "athena:GetQueryResults",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents",
+        "ssm:GetParameter*",
+        "secretsmanager:GetSecretValue",
+    }

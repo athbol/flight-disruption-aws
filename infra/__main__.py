@@ -321,6 +321,11 @@ aws.iam.RolePolicyAttachment(
     role=preview_role.name,
     policy_arn="arn:aws:iam::aws:policy/ReadOnlyAccess",
 )
+aws.iam.RolePolicy(
+    "gha-preview-no-data",
+    role=preview_role.id,
+    policy=json.dumps(iam.preview_deny()),
+)
 
 pulumi.export("bucket", bucket.bucket)
 pulumi.export("table", table.name)
