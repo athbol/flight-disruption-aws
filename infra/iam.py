@@ -17,6 +17,10 @@ def allow(actions, resources, condition=None):
     return statement
 
 
+def deny(actions, resources):
+    return {"Effect": "Deny", "Action": actions, "Resource": resources}
+
+
 def from_ip(vps_ip, extra=None):
     return {"IpAddress": {"aws:SourceIp": f"{vps_ip}/32"}} | (extra or {})
 
@@ -110,5 +114,16 @@ def deploy_policy(account):
                 [oidc_provider_arn(account)],
             ),
             allow(["iam:PassRole"], [f"{iam}:role/fda-*"]),
+            deny(
+                [
+                    "iam:Update*",
+                    "iam:Put*",
+                    "iam:Attach*",
+                    "iam:Detach*",
+                    "iam:Delete*",
+                    "iam:Create*",
+                ],
+                [f"{iam}:role/fda-gha-*", oidc_provider_arn(account)],
+            ),
         ]
     )
