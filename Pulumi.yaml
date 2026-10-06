@@ -1,0 +1,7 @@
+name: flight-disruption-aws
+description: AWS side of the synthetic flight-disruption pipeline
+runtime:
+  name: python
+  options:
+    toolchain: uv
+main: infra
