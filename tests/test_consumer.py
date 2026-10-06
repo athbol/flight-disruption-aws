@@ -87,9 +87,13 @@ def fake_consumer(messages, s3=None, tick=lambda: None):
         assert asynchronous is False
         consumer.commits.append(bucket_keys(s3) if s3 else [])
 
+    def subscribe(topics):
+        assert isinstance(topics, list)
+        consumer.subscribed.append(topics)
+
     consumer.poll = poll
     consumer.commit = commit
-    consumer.subscribe = consumer.subscribed.append
+    consumer.subscribe = subscribe
     consumer.close = lambda: consumer.closed.append(True)
     return consumer
 
