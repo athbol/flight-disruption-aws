@@ -129,15 +129,16 @@ def deploy_policy(account):
     )
 
 
-def service_publish(service, topic_arn, source_arns):
+def service_publish(sid, service, topic_arn, source_arns):
     condition = {"ArnEquals": {"aws:SourceArn": source_arns}}
-    return {"Principal": {"Service": service}} | allow(["sns:Publish"], [topic_arn], condition)
+    statement = allow(["sns:Publish"], [topic_arn], condition)
+    return {"Sid": sid, "Principal": {"Service": service}} | statement
 
 
 def alerts_publish(topic_arn, rule_arn, alarm_arns):
     return policy(
         [
-            service_publish("events.amazonaws.com", topic_arn, rule_arn),
-            service_publish("cloudwatch.amazonaws.com", topic_arn, alarm_arns),
+            service_publish("EventsPublish", "events.amazonaws.com", topic_arn, rule_arn),
+            service_publish("AlarmsPublish", "cloudwatch.amazonaws.com", topic_arn, alarm_arns),
         ]
     )
