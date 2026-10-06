@@ -88,7 +88,7 @@ aws.iam.UserPolicy(
         lambda args: json.dumps(iam.consumer_policy(*args))
     ),
 )
-consumer_key = aws.iam.AccessKey("consumer-key", user=consumer.name)
+consumer_key = aws.iam.AccessKey("consumer-key-2", user=consumer.name)
 
 glue_role = aws.iam.Role(
     "glue",
