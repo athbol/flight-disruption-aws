@@ -29,7 +29,7 @@ Screenshots from the live system, in the order the data flows.
 2. ![A DynamoDB item](docs/screenshots/02-dynamodb-item.png) One booking in the live table.
 3. ![S3 raw prefix](docs/screenshots/03-s3-raw.png) Raw archive, one object per flush.
 4. ![Glue job run](docs/screenshots/04-glue-run.png) The daily curate job, succeeded.
-5. ![Athena query](docs/screenshots/05-athena-query.png) Disruptions over the last three days.
+5. ![Athena query](docs/screenshots/05-athena-query.png) The curated `flights` table queried in Athena on the first day: six flights so far, one of them delayed.
 6. ![CloudWatch dashboard](docs/screenshots/06-cloudwatch-dashboard.png) Heartbeat, events written and stale events skipped.
 7. ![Alarm email](docs/screenshots/07-alarm-email.png) The email that arrives when the consumer stops.
 8. ![GitHub Actions](docs/screenshots/08-github-actions-green.png) Every push to main runs the tests and then `pulumi up`.
