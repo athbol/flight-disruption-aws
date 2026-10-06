@@ -8,6 +8,12 @@ BUCKET_ARN = "arn:aws:s3:::fda-bucket"
 SUBJECT = "repo:athbol@32675046/flight-disruption-aws@1406409508"
 SUB = f"{SUBJECT}:ref:refs/heads/main"
 OIDC_ARN = f"arn:aws:iam::{ACCOUNT}:oidc-provider/token.actions.githubusercontent.com"
+TOPIC_ARN = f"arn:aws:sns:{REGION}:{ACCOUNT}:fda-alerts"
+RULE_ARN = f"arn:aws:events:{REGION}:{ACCOUNT}:rule/fda-glue-failed"
+ALARM_ARNS = [
+    f"arn:aws:cloudwatch:{REGION}:{ACCOUNT}:alarm:fda-heartbeat-missing",
+    f"arn:aws:cloudwatch:{REGION}:{ACCOUNT}:alarm:fda-dynamodb-throttles",
+]
 
 
 def as_list(value):
@@ -169,3 +175,27 @@ def test_deploy_cannot_change_its_own_roles_or_the_oidc_provider():
     ]
     assert gha_roles == [f"arn:aws:iam::{ACCOUNT}:role/fda-gha-*"]
     assert OIDC_ARN in resources(deny)
+
+
+def alerts():
+    return iam.alerts_publish(TOPIC_ARN, RULE_ARN, ALARM_ARNS)
+
+
+def test_alerts_topic_only_takes_publish_from_events_and_cloudwatch():
+    principals = [statement["Principal"] for statement in alerts()["Statement"]]
+    assert principals == [
+        {"Service": "events.amazonaws.com"},
+        {"Service": "cloudwatch.amazonaws.com"},
+    ]
+    assert all_actions(alerts()) == {"sns:Publish"}
+    assert all_resources(alerts()) == {TOPIC_ARN}
+
+
+def test_alerts_events_publish_only_from_the_glue_rule():
+    events = alerts()["Statement"][0]
+    assert events["Condition"] == {"ArnEquals": {"aws:SourceArn": RULE_ARN}}
+
+
+def test_alerts_cloudwatch_publishes_only_from_our_alarms():
+    cloudwatch = alerts()["Statement"][1]
+    assert cloudwatch["Condition"] == {"ArnEquals": {"aws:SourceArn": ALARM_ARNS}}
