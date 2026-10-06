@@ -6,6 +6,15 @@ GITHUB_OWNER = "athbol"
 GITHUB_OWNER_ID = 32675046
 GITHUB_REPO = "flight-disruption-aws"
 GITHUB_REPO_ID = 1406409508
+TRAIL_OBJECT_DENIES = ["s3:DeleteObject", "s3:DeleteObjectVersion", "s3:PutObject"]
+TRAIL_BUCKET_DENIES = [
+    "s3:DeleteBucket",
+    "s3:PutBucketPolicy",
+    "s3:DeleteBucketPolicy",
+    "s3:PutLifecycleConfiguration",
+    "s3:PutBucketVersioning",
+    "s3:PutEncryptionConfiguration",
+]
 
 
 def policy(statements):
@@ -25,6 +34,13 @@ def deny(actions, resources):
 
 def from_ip(vps_ip, extra=None):
     return {"IpAddress": {"aws:SourceIp": f"{vps_ip}/32"}} | (extra or {})
+
+
+def trail_bucket_lock(bucket_arn):
+    return [
+        deny(TRAIL_OBJECT_DENIES, [f"{bucket_arn}/*"]),
+        deny(TRAIL_BUCKET_DENIES, [bucket_arn]),
+    ]
 
 
 def oidc_provider_arn(account):
@@ -113,7 +129,8 @@ def github_trust(account, sub):
 
 def boundary_policy():
     services = ("s3", "dynamodb", "glue", "athena", "logs", "cloudwatch", "events", "sns")
-    return policy([allow([f"{service}:*" for service in services], ["*"])])
+    data = allow([f"{service}:*" for service in services], ["*"])
+    return policy([data, *trail_bucket_lock("arn:aws:s3:::fda-*-trail")])
 
 
 def deploy_policy(account):
@@ -196,17 +213,7 @@ def deploy_policy(account):
                 ],
                 ["*"],
             ),
-            deny(["s3:DeleteObject", "s3:DeleteObjectVersion"], [f"{trail_bucket}/*"]),
-            deny(
-                [
-                    "s3:DeleteBucket",
-                    "s3:PutBucketPolicy",
-                    "s3:DeleteBucketPolicy",
-                    "s3:PutLifecycleConfiguration",
-                    "s3:PutBucketVersioning",
-                ],
-                [trail_bucket],
-            ),
+            *trail_bucket_lock(trail_bucket),
         ]
     )
 
