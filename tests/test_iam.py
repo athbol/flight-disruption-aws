@@ -239,6 +239,21 @@ def test_deploy_cannot_stop_the_trail_or_change_the_budget():
         assert denied(policy, action, "*"), action
 
 
+def test_deploy_cannot_empty_or_block_the_trail_bucket():
+    policy = iam.deploy_policy(ACCOUNT)
+    trail_bucket = f"arn:aws:s3:::fda-{ACCOUNT}-trail"
+    for action in ("s3:DeleteObject", "s3:DeleteObjectVersion"):
+        assert denied(policy, action, f"{trail_bucket}/*"), action
+    for action in (
+        "s3:DeleteBucket",
+        "s3:PutBucketPolicy",
+        "s3:DeleteBucketPolicy",
+        "s3:PutLifecycleConfiguration",
+        "s3:PutBucketVersioning",
+    ):
+        assert denied(policy, action, trail_bucket), action
+
+
 def test_boundary_allows_only_the_data_services_and_no_identity_actions():
     boundary = iam.boundary_policy()
     assert all(statement["Effect"] == "Allow" for statement in boundary["Statement"])
