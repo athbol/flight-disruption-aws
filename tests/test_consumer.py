@@ -33,11 +33,21 @@ def aws(live_table):
 
 
 def flight(flight_id, sequence=1):
-    return {"flight_id": flight_id, "event_type": "scheduled", "sequence": sequence}
+    return {
+        "event_id": f"{flight_id}-{sequence}",
+        "flight_id": flight_id,
+        "event_type": "scheduled",
+        "sequence": sequence,
+    }
 
 
 def booking(booking_id, sequence=1):
-    return {"booking_id": booking_id, "passenger_id": "P1", "sequence": sequence}
+    return {
+        "event_id": f"{booking_id}-{sequence}",
+        "booking_id": booking_id,
+        "passenger_id": "P1",
+        "sequence": sequence,
+    }
 
 
 def message(topic, offset, event, partition=0, error=None, raw=None):
@@ -149,6 +159,16 @@ def test_commit_only_after_s3_objects_exist(aws):
     consumer = fake_consumer(messages, aws.s3, tick)
     run(consumer, aws.table, aws.s3, fake_cloudwatch(), BUCKET, until_drained(consumer), clock)
     assert consumer.commits == [expected]
+
+
+def test_flush_when_buffered_bytes_reach_the_limit(aws, monkeypatch):
+    messages = [message("flights", offset, flight(f"F{offset}")) for offset in range(4)]
+    size = len(messages[0].value())
+    monkeypatch.setattr("fda.raw.FLUSH_BYTES", 2 * size)
+    clock, tick = fake_clock(0)
+    consumer = fake_consumer(messages, aws.s3, tick)
+    run(consumer, aws.table, aws.s3, fake_cloudwatch(), BUCKET, after_polls(consumer, 4), clock)
+    assert [len(keys) for keys in consumer.commits] == [1, 2, 2]
 
 
 def test_dynamodb_failure_means_no_commit(aws):
@@ -320,3 +340,16 @@ def test_validation_exception_from_dynamodb_is_rejected_and_kept_raw(aws):
     assert metric_values(cloudwatch.calls[0]) == beat({("flights", REJECTED): 2})
     assert len(raw_lines(aws.s3)) == 2
     assert len(consumer.commits) == 1
+
+
+def test_event_without_an_event_id_is_rejected_and_kept_raw(aws):
+    unnamed = flight("F9")
+    del unnamed["event_id"]
+    messages = [message("flights", 0, unnamed), message("flights", 1, flight("F1"))]
+    clock, tick = fake_clock(HEARTBEAT_SECONDS / 2)
+    consumer = fake_consumer(messages, aws.s3, tick)
+    cloudwatch = fake_cloudwatch()
+    run(consumer, aws.table, aws.s3, cloudwatch, BUCKET, until_drained(consumer), clock)
+    expected = beat({("flights", REJECTED): 1, ("flights", WRITTEN): 1})
+    assert metric_values(cloudwatch.calls[0]) == expected
+    assert len(raw_lines(aws.s3)) == 2

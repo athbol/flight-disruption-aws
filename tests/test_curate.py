@@ -136,6 +136,18 @@ def test_latest_drops_rows_without_a_key_or_sequence(spark):
     assert [(row["flight_id"], row["sequence"]) for row in rows] == [(f"F1-{day(0)}", 1)]
 
 
+def test_latest_drops_rows_without_an_event_id(spark):
+    events = [
+        flight(day(0), "scheduled", sequence=1),
+        flight(day(0), "departed", sequence=1, number=2) | {"event_id": None},
+        flight(day(0), "delayed", sequence=1, number=3) | {"event_id": None},
+    ]
+
+    rows = curate.latest(frame(spark, "flights", events), "flight_id").collect()
+
+    assert [row["flight_id"] for row in rows] == [f"F1-{day(0)}"]
+
+
 def test_journeys_labels_each_disruption(spark):
     on_time = flight(day(0), "departed", number=1)
     late = flight(day(0), "departed", delay=30, number=2)
@@ -330,3 +342,14 @@ def test_run_succeeds_before_a_topic_has_raw_files(spark, tmp_path):
 
     assert partitions(curated_root, "journeys") == []
     assert partitions(curated_root, "flights") == [f"flight_date={day(0)}"]
+
+
+def test_run_skips_a_raw_line_that_is_a_json_array(spark, tmp_path):
+    wrapped = ("flights", day(0), [flight(day(0), number=2)])
+    raw_root = write_raw(tmp_path, journey_events(day(0)) + [wrapped])
+    curated_root = tmp_path / "curated"
+
+    curate.run(spark, raw_root, str(curated_root), RUN_DATE)
+
+    rows = spark.read.parquet(str(curated_root / "flights")).collect()
+    assert [row["flight_id"] for row in rows] == [f"F1-{day(0)}"]
