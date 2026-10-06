@@ -14,6 +14,7 @@
     .flow { stroke: #333; stroke-width: 1.5; fill: none; marker-end: url(#arrow); }
     .edge { fill: #333; font-size: 11px; }
   </style>
+  <rect width="960" height="470" rx="8" fill="#fff"/>
 
   <rect class="zone" x="20" y="60" width="260" height="190"/>
   <text class="zone-label" x="32" y="80">VPS, Docker Compose</text>
@@ -36,6 +37,7 @@
   <rect class="store" x="340" y="80" width="130" height="56"/>
   <text class="label" x="405" y="104" text-anchor="middle">DynamoDB</text>
   <text class="sub" x="405" y="122" text-anchor="middle">fda-live: latest state</text>
+  <text class="edge" x="405" y="156" text-anchor="middle">highest sequence wins</text>
 
   <rect class="store" x="340" y="180" width="130" height="56"/>
   <text class="label" x="405" y="204" text-anchor="middle">S3 raw/</text>
@@ -64,9 +66,8 @@
   <path class="flow" d="M140,128 L160,128"/>
   <path class="flow" d="M210,156 L210,168 L150,168 L150,180"/>
   <path class="flow" d="M215,218 L340,218"/>
-  <text class="edge" x="252" y="212" text-anchor="middle">every event</text>
+  <text class="edge" x="246" y="212" text-anchor="middle">every event</text>
   <path class="flow" d="M215,192 L300,192 L300,108 L340,108"/>
-  <text class="edge" x="290" y="150" text-anchor="middle" transform="rotate(-90 290 150)">highest sequence wins</text>
   <path class="flow" d="M470,208 L520,208"/>
   <path class="flow" d="M650,208 L700,208"/>
   <path class="flow" d="M765,236 L765,280"/>
@@ -74,5 +75,5 @@
   <text class="edge" x="245" y="380" text-anchor="middle">heartbeat, written, stale</text>
   <path class="flow" d="M490,388 L520,388"/>
   <path class="flow" d="M585,236 L585,360"/>
-  <text class="edge" x="596" y="300">job state</text>
+  <text class="edge" x="574" y="300" text-anchor="end">job state, EventBridge</text>
 </svg>
