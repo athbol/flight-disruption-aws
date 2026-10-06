@@ -118,7 +118,7 @@ glue_package = aws.s3.BucketObject(
 )
 glue_logs = [
     aws.cloudwatch.LogGroup(f"glue-{name}", name=f"/aws-glue/jobs/{name}", retention_in_days=7)
-    for name in ("output", "error", "logs-v2")
+    for name in ("output", "error")
 ]
 curate_job = aws.glue.Job(
     "curate",
@@ -140,7 +140,6 @@ curate_job = aws.glue.Job(
         "--RAW_ROOT": pulumi.Output.format("s3://{0}/raw", bucket.bucket),
         "--CURATED_ROOT": pulumi.Output.format("s3://{0}/curated", bucket.bucket),
         "--RUN_DATE": "today",
-        "--enable-continuous-cloudwatch-log": "true",
         "--job-language": "python",
     },
     opts=pulumi.ResourceOptions(depends_on=glue_logs),
