@@ -59,6 +59,11 @@ aws.s3.BucketLifecycleConfiguration(
         },
     ],
 )
+aws.s3.BucketPolicy(
+    "bucket-tls-only",
+    bucket=bucket.id,
+    policy=bucket.arn.apply(lambda arn: json.dumps(iam.tls_only(arn))),
+)
 
 table = aws.dynamodb.Table(
     "live",

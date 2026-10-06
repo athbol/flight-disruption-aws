@@ -292,3 +292,12 @@ def test_preview_cannot_read_data_logs_or_secrets():
         "ssm:GetParameter*",
         "secretsmanager:GetSecretValue",
     }
+
+
+def test_bucket_refuses_requests_without_tls():
+    [statement] = iam.tls_only(BUCKET_ARN)["Statement"]
+    assert statement["Effect"] == "Deny"
+    assert statement["Principal"] == "*"
+    assert actions(statement) == ["s3:*"]
+    assert set(resources(statement)) == {BUCKET_ARN, f"{BUCKET_ARN}/*"}
+    assert statement["Condition"] == {"Bool": {"aws:SecureTransport": "false"}}
