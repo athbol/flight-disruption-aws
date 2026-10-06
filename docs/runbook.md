@@ -125,4 +125,4 @@ aws athena start-query-execution --work-group fda \
 aws athena get-query-results --query-execution-id <id>
 ```
 
-Verify: `get-query-execution --query-execution-id <id>` shows `SUCCEEDED` and the results have one row per disruption type.
+Verify: `aws athena get-query-execution --query-execution-id <id>` shows `SUCCEEDED` and the results have one row per disruption type.
