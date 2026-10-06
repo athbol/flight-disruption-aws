@@ -74,6 +74,19 @@ def glue_policy(bucket_arn, region, account):
     )
 
 
+def glue_trust(account):
+    return policy(
+        [
+            {
+                "Effect": "Allow",
+                "Principal": {"Service": "glue.amazonaws.com"},
+                "Action": "sts:AssumeRole",
+                "Condition": {"StringEquals": {"aws:SourceAccount": account}},
+            }
+        ]
+    )
+
+
 def github_sub(ref):
     return f"repo:{GITHUB_OWNER}@{GITHUB_OWNER_ID}/{GITHUB_REPO}@{GITHUB_REPO_ID}:{ref}"
 

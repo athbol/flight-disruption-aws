@@ -89,18 +89,7 @@ glue_role = aws.iam.Role(
     "glue",
     name="fda-glue",
     permissions_boundary=boundary.arn,
-    assume_role_policy=json.dumps(
-        {
-            "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Effect": "Allow",
-                    "Principal": {"Service": "glue.amazonaws.com"},
-                    "Action": "sts:AssumeRole",
-                }
-            ],
-        }
-    ),
+    assume_role_policy=json.dumps(iam.glue_trust(account)),
 )
 aws.iam.RolePolicy(
     "glue-policy",

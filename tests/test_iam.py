@@ -267,3 +267,10 @@ def test_alerts_cloudwatch_publishes_only_from_our_alarms():
 def test_alerts_statements_have_unique_sids():
     sids = [statement.get("Sid") for statement in alerts()["Statement"]]
     assert sids == ["EventsPublish", "AlarmsPublish"]
+
+
+def test_glue_trust_only_for_glue_in_our_account():
+    [statement] = iam.glue_trust(ACCOUNT)["Statement"]
+    assert statement["Principal"] == {"Service": "glue.amazonaws.com"}
+    assert statement["Action"] == "sts:AssumeRole"
+    assert statement["Condition"] == {"StringEquals": {"aws:SourceAccount": ACCOUNT}}
