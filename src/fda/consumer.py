@@ -20,6 +20,7 @@ POLL_SECONDS = 1.0
 HEARTBEAT = "Heartbeat"
 WRITTEN = "EventsWritten"
 STALE = "EventsStale"
+REJECTED = "EventsRejected"
 TOPIC_DIMENSION = "Topic"
 
 
@@ -34,9 +35,15 @@ def record(msg):
 
 
 def handle(table, msg, buffer, counts):
-    event = json.loads(msg.value())
-    written = put_live(table, msg.topic(), event)
-    counts[(msg.topic(), WRITTEN if written else STALE)] += 1
+    value = msg.value()
+    if value is None or b"\n" in value or b"\r" in value:
+        counts[(msg.topic(), REJECTED)] += 1
+        return
+    try:
+        written = put_live(table, msg.topic(), json.loads(value))
+        counts[(msg.topic(), WRITTEN if written else STALE)] += 1
+    except (ValueError, KeyError, TypeError, ArithmeticError):
+        counts[(msg.topic(), REJECTED)] += 1
     buffer.append(record(msg))
 
 
@@ -62,7 +69,9 @@ def heartbeat(cloudwatch, counts):
 def run(consumer, table, s3, cloudwatch, bucket, stop, clock=time.monotonic):
     consumer.subscribe(list(TOPICS))
     buffer = []
-    counts = Counter({(topic, metric): 0 for topic in TOPICS for metric in (WRITTEN, STALE)})
+    counts = Counter(
+        {(topic, metric): 0 for topic in TOPICS for metric in (WRITTEN, STALE, REJECTED)}
+    )
     last_flush = last_beat = clock()
     while not stop():
         msg = consumer.poll(POLL_SECONDS)

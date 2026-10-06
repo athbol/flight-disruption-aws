@@ -16,7 +16,7 @@ HIVE_PARQUET = "org.apache.hadoop.hive.ql.io.parquet"
 NAMED_QUERIES = ("disruptions_last_3_days", "passenger_journey", "delayed_flights_yesterday")
 
 config = pulumi.Config("fda")
-vps_ip = config.require("vps_ip")
+vps_ip = config.require_secret("vps_ip")
 alert_email = config.require_secret("alert_email")
 account = aws.get_caller_identity().account_id
 region = aws.get_region().region
@@ -59,6 +59,11 @@ aws.s3.BucketLifecycleConfiguration(
         },
     ],
 )
+aws.s3.BucketPolicy(
+    "bucket-tls-only",
+    bucket=bucket.id,
+    policy=bucket.arn.apply(lambda arn: json.dumps(iam.tls_only(arn))),
+)
 
 table = aws.dynamodb.Table(
     "live",
@@ -73,31 +78,23 @@ table = aws.dynamodb.Table(
     deletion_protection_enabled=False,
 )
 
-consumer = aws.iam.User("consumer", name="fda-consumer")
+boundary = aws.iam.Policy("boundary", name="fda-boundary", policy=json.dumps(iam.boundary_policy()))
+
+consumer = aws.iam.User("consumer", name="fda-consumer", permissions_boundary=boundary.arn)
 aws.iam.UserPolicy(
     "consumer-policy",
     user=consumer.name,
-    policy=pulumi.Output.all(table.arn, bucket.arn).apply(
-        lambda arns: json.dumps(iam.consumer_policy(arns[0], arns[1], vps_ip))
+    policy=pulumi.Output.all(table.arn, bucket.arn, vps_ip).apply(
+        lambda args: json.dumps(iam.consumer_policy(*args))
     ),
 )
-consumer_key = aws.iam.AccessKey("consumer-key", user=consumer.name)
+consumer_key = aws.iam.AccessKey("consumer-key-2", user=consumer.name)
 
 glue_role = aws.iam.Role(
     "glue",
     name="fda-glue",
-    assume_role_policy=json.dumps(
-        {
-            "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Effect": "Allow",
-                    "Principal": {"Service": "glue.amazonaws.com"},
-                    "Action": "sts:AssumeRole",
-                }
-            ],
-        }
-    ),
+    permissions_boundary=boundary.arn,
+    assume_role_policy=json.dumps(iam.glue_trust(account)),
 )
 aws.iam.RolePolicy(
     "glue-policy",
@@ -329,6 +326,56 @@ aws.iam.RolePolicyAttachment(
     role=preview_role.name,
     policy_arn="arn:aws:iam::aws:policy/ReadOnlyAccess",
 )
+aws.iam.RolePolicy(
+    "gha-preview-no-data",
+    role=preview_role.id,
+    policy=json.dumps(iam.preview_deny()),
+)
+
+trail_bucket = aws.s3.Bucket("trail-bucket", bucket=f"fda-{account}-trail")
+aws.s3.BucketPublicAccessBlock(
+    "trail-bucket-public-access",
+    bucket=trail_bucket.id,
+    block_public_acls=True,
+    block_public_policy=True,
+    ignore_public_acls=True,
+    restrict_public_buckets=True,
+)
+aws.s3.BucketServerSideEncryptionConfiguration(
+    "trail-bucket-encryption",
+    bucket=trail_bucket.id,
+    rules=[{"apply_server_side_encryption_by_default": {"sse_algorithm": "AES256"}}],
+)
+aws.s3.BucketLifecycleConfiguration(
+    "trail-bucket-lifecycle",
+    bucket=trail_bucket.id,
+    rules=[
+        {
+            "id": "expire-trail",
+            "status": "Enabled",
+            "filter": {"prefix": ""},
+            "expiration": {"days": 90},
+        }
+    ],
+)
+trail_arn = f"arn:aws:cloudtrail:{region}:{account}:trail/fda"
+trail_policy = aws.s3.BucketPolicy(
+    "trail-bucket-policy",
+    bucket=trail_bucket.id,
+    policy=trail_bucket.arn.apply(
+        lambda arn: json.dumps(iam.trail_bucket_policy(arn, trail_arn, account))
+    ),
+)
+aws.cloudtrail.Trail(
+    "trail",
+    name="fda",
+    s3_bucket_name=trail_bucket.id,
+    is_multi_region_trail=True,
+    include_global_service_events=True,
+    enable_log_file_validation=True,
+    opts=pulumi.ResourceOptions(depends_on=[trail_policy]),
+)
+aws.accessanalyzer.Analyzer("access-analyzer", analyzer_name="fda", type="ACCOUNT")
 
 pulumi.export("bucket", bucket.bucket)
 pulumi.export("table", table.name)

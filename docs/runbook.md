@@ -2,8 +2,8 @@
 
 ## VPS
 
-The generator, Kafka and the consumer run as a Docker Compose stack on the VPS (SSH alias `arkitsa`, user `deploy`).
-The `deploy` user is not in the docker group, so every Docker command uses `sudo`.
+The generator, Kafka and the consumer run as a Docker Compose stack on the VPS (your SSH alias), logged in as your non-root SSH user.
+That user is not in the docker group, so every Docker command uses `sudo`.
 Nothing listens on the host. The containers talk over the compose network.
 
 ### First install
@@ -23,7 +23,7 @@ Nothing listens on the host. The containers talk over the compose network.
    ```sh
    pulumi stack output --stack athbol-projects/flight-disruption-aws/prod --show-secrets --json \
      | python3 -c 'import json, sys; o = json.load(sys.stdin); [print(k + "=" + o[v]) for k, v in [("RAW_BUCKET", "bucket"), ("AWS_ACCESS_KEY_ID", "consumer_access_key_id"), ("AWS_SECRET_ACCESS_KEY", "consumer_secret_access_key")]]' \
-     | ssh arkitsa 'sudo install -m 600 -o root -g root /dev/stdin /opt/flight-disruption-aws/.env'
+     | ssh <vps> 'sudo install -m 600 -o root -g root /dev/stdin /opt/flight-disruption-aws/.env'
    ```
 
    Verify: `sudo wc -l /opt/flight-disruption-aws/.env` shows 3 lines and `sudo stat -c "%a %U" /opt/flight-disruption-aws/.env` shows `600 root`.
@@ -170,3 +170,51 @@ Verify: `aws glue get-job-runs --job-name fda-curate --max-items 1 --query 'JobR
 There is no safe way to force throttling on the live table, so this alarm is not tested by hand.
 
 Verify: `aws cloudwatch describe-alarms --alarm-names fda-dynamodb-throttles --query 'MetricAlarms[0].StateValue'` shows `OK`.
+
+## Security
+
+### Permissions boundary
+
+CI deploys with the `fda-gha-deploy` role. It can create and change IAM roles, users and policies whose names start with `fda-`, so it could otherwise grant itself anything through a new identity.
+The managed policy `fda-boundary` caps that. It allows only S3, DynamoDB, Glue, Athena, CloudWatch Logs, CloudWatch, EventBridge and SNS, and nothing in IAM or STS.
+The deploy role can create an `fda-` role or user, or put or attach a policy on one, only when that identity carries `fda-boundary`.
+It cannot remove a boundary, change `fda-boundary` itself, change its own roles or the GitHub OIDC provider, stop, delete or reconfigure the CloudTrail trail, or change or delete the budget.
+
+These changes are applied from the laptop with admin credentials, never by CI:
+
+* anything on `fda-gha-deploy`, `fda-gha-preview` or their policies
+* `fda-boundary`
+* the GitHub OIDC provider
+* changes to the `fda` trail or the `fda-monthly` budget
+
+```sh
+pulumi preview --stack prod
+pulumi up --stack prod
+```
+
+Verify: the next CI deploy on `main` succeeds with no changes left.
+
+### MFA
+
+Admin credentials on the laptop are used only in a session that signed in with MFA.
+The root user has MFA and no access keys.
+CI never holds long-lived AWS keys. It assumes its roles through GitHub OIDC.
+
+### Rotate the consumer key
+
+1. Rename the `aws.iam.AccessKey` resource in `infra/__main__.py`, for example `consumer-key-2` to `consumer-key-3`, and merge.
+   The deploy creates the new key and deletes the old one, so the consumer stops writing until step 2.
+2. Reinstall `.env` on the VPS with the command in [First install](#first-install) step 2, then restart the consumer.
+
+   ```sh
+   cd /opt/flight-disruption-aws && sudo docker compose up -d --force-recreate consumer
+   ```
+
+Verify: `aws iam list-access-keys --user-name fda-consumer` shows one key, and [Checks](#checks) steps 2 to 5 pass.
+
+### Accepted limitations
+
+* CI can still create `fda-` roles and users, but only inside the boundary, so they never reach IAM, STS or services outside it.
+* CI uses a personal Pulumi access token stored as a GitHub secret. The deploy job on `main` and the preview job on same-repo pull requests both hold it, so anyone who can run either can use it.
+* The consumer key is a long-lived access key. It works only from the VPS IP address and only on the live table, the `raw/` prefix and our metrics.
+* A compromised CI run could leave a way back in through an `fda-` identity it created or changed. After a suspected CI compromise, review the trust policies and access keys of every `fda-` role and user.

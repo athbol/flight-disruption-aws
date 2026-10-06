@@ -1,6 +1,14 @@
 import dashboard
 
-from fda.consumer import HEARTBEAT, METRIC_NAMESPACE, STALE, TOPIC_DIMENSION, TOPICS, WRITTEN
+from fda.consumer import (
+    HEARTBEAT,
+    METRIC_NAMESPACE,
+    REJECTED,
+    STALE,
+    TOPIC_DIMENSION,
+    TOPICS,
+    WRITTEN,
+)
 
 REGION = "eu-central-1"
 TABLE = "fda-live"
@@ -35,7 +43,11 @@ def test_consumer_widgets_use_the_consumer_metric_names():
     heartbeat, written, stale, _ = widgets("metric")
     assert metrics(heartbeat) == [(METRIC_NAMESPACE, HEARTBEAT)]
     assert metrics(written) == [(METRIC_NAMESPACE, WRITTEN, TOPIC_DIMENSION, t) for t in TOPICS]
-    assert metrics(stale) == [(METRIC_NAMESPACE, STALE, TOPIC_DIMENSION, t) for t in TOPICS]
+    assert metrics(stale) == [
+        (METRIC_NAMESPACE, metric, TOPIC_DIMENSION, t)
+        for metric in (STALE, REJECTED)
+        for t in TOPICS
+    ]
 
 
 def test_heartbeat_is_per_minute_and_events_per_five_minutes_with_written_stacked():
