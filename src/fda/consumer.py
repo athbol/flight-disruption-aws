@@ -38,13 +38,14 @@ def handle(table, msg, buffer, counts):
     value = msg.value()
     if value is None or b"\n" in value or b"\r" in value:
         counts[(msg.topic(), REJECTED)] += 1
-        return
+        return 0
     try:
         written = put_live(table, msg.topic(), json.loads(value))
         counts[(msg.topic(), WRITTEN if written else STALE)] += 1
     except (ValueError, KeyError, TypeError, ArithmeticError, RecursionError):
         counts[(msg.topic(), REJECTED)] += 1
     buffer.append(record(msg))
+    return len(value)
 
 
 def flush(s3, bucket, consumer, buffer):
@@ -69,6 +70,7 @@ def heartbeat(cloudwatch, counts):
 def run(consumer, table, s3, cloudwatch, bucket, stop, clock=time.monotonic):
     consumer.subscribe(TOPICS)
     buffer = []
+    size = 0
     counts = Counter(
         {(topic, metric): 0 for topic in TOPICS for metric in (WRITTEN, STALE, REJECTED)}
     )
@@ -78,9 +80,10 @@ def run(consumer, table, s3, cloudwatch, bucket, stop, clock=time.monotonic):
         if msg is not None:
             if msg.error() is not None:
                 raise KafkaException(msg.error())
-            handle(table, msg, buffer, counts)
-        if should_flush(len(buffer), clock() - last_flush):
+            size += handle(table, msg, buffer, counts)
+        if should_flush(len(buffer), size, clock() - last_flush):
             flush(s3, bucket, consumer, buffer)
+            size = 0
             last_flush = clock()
         if clock() - last_beat >= HEARTBEAT_SECONDS:
             heartbeat(cloudwatch, counts)

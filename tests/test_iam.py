@@ -239,11 +239,43 @@ def test_deploy_cannot_stop_the_trail_or_change_the_budget():
         assert denied(policy, action, "*"), action
 
 
+TRAIL_OBJECT_DENIES = ("s3:DeleteObject", "s3:DeleteObjectVersion", "s3:PutObject")
+TRAIL_BUCKET_DENIES = (
+    "s3:DeleteBucket",
+    "s3:PutBucketPolicy",
+    "s3:DeleteBucketPolicy",
+    "s3:PutLifecycleConfiguration",
+    "s3:PutBucketVersioning",
+    "s3:PutEncryptionConfiguration",
+)
+
+
+def assert_trail_bucket_locked(policy, trail_bucket):
+    for action in TRAIL_OBJECT_DENIES:
+        assert denied(policy, action, f"{trail_bucket}/*"), action
+    for action in TRAIL_BUCKET_DENIES:
+        assert denied(policy, action, trail_bucket), action
+
+
+def test_trail_bucket_name_is_per_account():
+    assert iam.trail_bucket_name(ACCOUNT) == f"fda-{ACCOUNT}-trail"
+
+
+def test_deploy_cannot_empty_overwrite_or_block_the_trail_bucket():
+    assert_trail_bucket_locked(iam.deploy_policy(ACCOUNT), f"arn:aws:s3:::fda-{ACCOUNT}-trail")
+
+
+def test_boundary_cannot_empty_overwrite_or_block_the_trail_bucket():
+    boundary = iam.boundary_policy(ACCOUNT)
+    assert_trail_bucket_locked(boundary, f"arn:aws:s3:::fda-{ACCOUNT}-trail")
+    assert not any("*-trail" in resource for resource in all_resources(boundary))
+
+
 def test_boundary_allows_only_the_data_services_and_no_identity_actions():
-    boundary = iam.boundary_policy()
-    assert all(statement["Effect"] == "Allow" for statement in boundary["Statement"])
-    assert all_resources(boundary) == {"*"}
-    assert all_actions(boundary) == {
+    boundary = iam.boundary_policy(ACCOUNT)
+    allows = {"Statement": [s for s in boundary["Statement"] if s["Effect"] == "Allow"]}
+    assert all_resources(allows) == {"*"}
+    assert all_actions(allows) == {
         "s3:*",
         "dynamodb:*",
         "glue:*",
