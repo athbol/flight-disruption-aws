@@ -7,6 +7,8 @@ import iam
 import pulumi
 import pulumi_aws as aws
 
+from fda.consumer import HEARTBEAT, METRIC_NAMESPACE
+
 GITHUB_OIDC_URL = "https://token.actions.githubusercontent.com"
 GITHUB_THUMBPRINT = "6938fd4d98bab03faadb97b34396831e3780aea1"
 FDA_MODULES = ("__init__.py", "schemas.py", "curate.py")
@@ -212,8 +214,8 @@ aws.sns.TopicSubscription("alerts-email", topic=alerts.arn, protocol="email", en
 heartbeat_alarm = aws.cloudwatch.MetricAlarm(
     "heartbeat-missing",
     name="fda-heartbeat-missing",
-    namespace="FlightDisruption",
-    metric_name="Heartbeat",
+    namespace=METRIC_NAMESPACE,
+    metric_name=HEARTBEAT,
     statistic="Sum",
     period=300,
     evaluation_periods=2,
