@@ -126,3 +126,41 @@ aws athena get-query-results --query-execution-id <id>
 ```
 
 Verify: `aws athena get-query-execution --query-execution-id <id>` shows `SUCCEEDED` and the results have one row per disruption type.
+
+## Monitoring
+
+Dashboard: https://eu-central-1.console.aws.amazon.com/cloudwatch/home?region=eu-central-1#dashboards:name=fda
+
+Every alert goes to the `fda-alerts` email subscription.
+
+* `fda-heartbeat-missing` fires when the consumer sends fewer than one heartbeat in each of two 5-minute periods, or none at all. It emails again when the heartbeat comes back.
+* `fda-dynamodb-throttles` fires when any `PutItem` on `fda-live` is throttled in a 5-minute period.
+* The EventBridge rule `fda-glue-failed` emails when `fda-curate` ends in `FAILED`, `TIMEOUT` or `ERROR`.
+
+### Test the heartbeat alarm
+
+On the VPS, stop the consumer, wait for the email, then start it again.
+
+```sh
+cd /opt/flight-disruption-aws && sudo docker compose stop consumer
+sudo docker compose start consumer
+```
+
+Verify: an ALARM email arrives within about 10 minutes of the stop, and an OK email follows within about 10 minutes of the start.
+`aws cloudwatch describe-alarms --alarm-names fda-heartbeat-missing --query 'MetricAlarms[0].StateValue'` shows `ALARM`, then `OK`.
+
+### Test the Glue failure rule
+
+Point the job at a bucket it cannot read.
+
+```sh
+aws glue start-job-run --job-name fda-curate --arguments '{"--RAW_ROOT":"s3://nope/raw"}'
+```
+
+Verify: `aws glue get-job-runs --job-name fda-curate --max-items 1 --query 'JobRuns[0].JobRunState'` shows `FAILED` and a Glue Job State Change email arrives within minutes.
+
+### Throttle alarm
+
+There is no safe way to force throttling on the live table, so this alarm is not tested by hand.
+
+Verify: `aws cloudwatch describe-alarms --alarm-names fda-dynamodb-throttles --query 'MetricAlarms[0].StateValue'` shows `OK`.
