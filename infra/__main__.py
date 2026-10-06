@@ -211,6 +211,7 @@ aws.sns.TopicSubscription("alerts-email", topic=alerts.arn, protocol="email", en
 heartbeat_alarm = aws.cloudwatch.MetricAlarm(
     "heartbeat-missing",
     name="fda-heartbeat-missing",
+    alarm_description="The consumer stopped publishing. Check docker compose ps on the VPS.",
     namespace=METRIC_NAMESPACE,
     metric_name=HEARTBEAT,
     statistic="Sum",
