@@ -58,15 +58,26 @@ Nothing listens on the host. The containers talk over the compose network.
 
    Verify: no tracebacks.
 
-3. Raw events land in S3. Run this on the laptop with admin credentials.
+3. Raw events land in S3. Run this on the laptop from the repo root with admin credentials.
 
    ```sh
-   aws s3 ls s3://fda-597595167166-euc1/raw/topic=flights/ --recursive | tail
+   bucket=$(pulumi stack output --stack athbol-projects/flight-disruption-aws/prod bucket)
+   aws s3 ls "s3://$bucket/raw/topic=flights/" --recursive | tail
    ```
 
    Verify: objects with recent timestamps.
+   The generator emits events at their scheduled times, so a gap of an hour between objects during the day is normal.
 
-4. The consumer sends its heartbeat metric.
+4. Live state lands in DynamoDB.
+
+   ```sh
+   aws dynamodb scan --table-name fda-live --max-items 3 \
+     --query 'Items[*].[pk.S,sk.S,event_type.S,sequence.N]' --output table
+   ```
+
+   Verify: rows with flight, booking or ticket keys.
+
+5. The consumer sends its heartbeat metric.
 
    ```sh
    aws cloudwatch get-metric-statistics --namespace FlightDisruption --metric-name Heartbeat \
@@ -79,7 +90,15 @@ Nothing listens on the host. The containers talk over the compose network.
 ### Update
 
 ```sh
-cd /opt/flight-disruption-aws && sudo git pull && sudo systemctl restart fda
+cd /opt/flight-disruption-aws && sudo git pull && sudo docker compose up -d --build
 ```
 
-Verify: `sudo docker compose ps` shows all three containers recently started and Kafka healthy.
+This rebuilds the image and recreates only the containers whose image or config changed, usually the generator and the consumer.
+The systemd unit does not build at boot, so this step is the only place a new image is built.
+If `deploy/fda.service` changed, copy it again and reload systemd.
+
+```sh
+sudo cp deploy/fda.service /etc/systemd/system/ && sudo systemctl daemon-reload
+```
+
+Verify: `sudo docker compose ps` shows all three containers up and Kafka healthy.
