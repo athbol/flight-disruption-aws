@@ -35,6 +35,6 @@ jobs:
       - uses: pulumi/actions@v6
         with:
           command: preview
-          stack-name: athbol/flight-disruption-aws/prod
+          stack-name: athbol-projects/flight-disruption-aws/prod
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
