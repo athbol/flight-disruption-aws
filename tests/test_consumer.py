@@ -168,7 +168,7 @@ def test_flush_when_buffered_bytes_reach_the_limit(aws, monkeypatch):
     clock, tick = fake_clock(0)
     consumer = fake_consumer(messages, aws.s3, tick)
     run(consumer, aws.table, aws.s3, fake_cloudwatch(), BUCKET, after_polls(consumer, 4), clock)
-    assert [len(keys) for keys in consumer.commits] == [1, 2, 2]
+    assert [len(keys) for keys in consumer.commits] == [1, 2]
 
 
 def test_dynamodb_failure_means_no_commit(aws):
