@@ -45,6 +45,7 @@ def latest(df, key: str):
     newest_first = Window.partitionBy(key).orderBy(col("sequence").desc())
     return (
         df.dropna(subset=[key, "sequence", "event_id"])
+        .filter(col("event_id") != "")
         .dropDuplicates(["event_id"])
         .withColumn("rank", row_number().over(newest_first))
         .filter(col("rank") == 1)
