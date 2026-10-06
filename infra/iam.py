@@ -1,4 +1,8 @@
 GITHUB_OIDC_HOST = "token.actions.githubusercontent.com"
+GITHUB_OWNER = "athbol"
+GITHUB_OWNER_ID = 32675046
+GITHUB_REPO = "flight-disruption-aws"
+GITHUB_REPO_ID = 1406409508
 METRIC_NAMESPACE = "FlightDisruption"
 
 
@@ -66,7 +70,11 @@ def glue_policy(bucket_arn, region, account):
     )
 
 
-def github_trust(account, repo, sub):
+def github_sub(ref):
+    return f"repo:{GITHUB_OWNER}@{GITHUB_OWNER_ID}/{GITHUB_REPO}@{GITHUB_REPO_ID}:{ref}"
+
+
+def github_trust(account, sub):
     return policy(
         [
             {
@@ -74,8 +82,10 @@ def github_trust(account, repo, sub):
                 "Principal": {"Federated": oidc_provider_arn(account)},
                 "Action": "sts:AssumeRoleWithWebIdentity",
                 "Condition": {
-                    "StringEquals": {f"{GITHUB_OIDC_HOST}:aud": "sts.amazonaws.com"},
-                    "StringLike": {f"{GITHUB_OIDC_HOST}:sub": sub},
+                    "StringEquals": {
+                        f"{GITHUB_OIDC_HOST}:aud": "sts.amazonaws.com",
+                        f"{GITHUB_OIDC_HOST}:sub": sub,
+                    },
                 },
             }
         ]
