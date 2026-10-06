@@ -8,9 +8,9 @@ import boto3
 from confluent_kafka import KafkaException
 
 from fda import schemas
-from fda.generator import create_topics
 from fda.live import TABLE_NAME, put_live
 from fda.raw import objects, should_flush
+from fda.topics import BOOTSTRAP, create_topics
 
 TOPICS = tuple(schemas.TOPICS)
 GROUP_ID = "fda-consumer"
@@ -93,7 +93,7 @@ def main():
     from confluent_kafka import Consumer
 
     bucket = os.environ["RAW_BUCKET"]
-    bootstrap = os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092")
+    bootstrap = os.environ.get("KAFKA_BOOTSTRAP", BOOTSTRAP)
     create_topics(bootstrap)
     consumer = Consumer(
         {

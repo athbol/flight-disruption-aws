@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 
 from fda.schemas import TOPICS
+from fda.topics import BOOTSTRAP, create_topics
 
 EVENT_NAMESPACE = uuid.UUID("6f1c2a9e-4b7d-4e2a-9c51-0d3f8a6b2e47")
 
@@ -182,22 +183,6 @@ def entity_emissions(rng, seed, topic, entity_id, changes, hold_last=timedelta(0
     return emissions
 
 
-def create_topics(bootstrap):
-    from confluent_kafka import KafkaError, KafkaException
-    from confluent_kafka.admin import AdminClient, NewTopic
-
-    admin = AdminClient({"bootstrap.servers": bootstrap})
-    existing = admin.list_topics(timeout=30).topics
-    missing = [NewTopic(topic, num_partitions=1) for topic in TOPICS if topic not in existing]
-    if missing:
-        for future in admin.create_topics(missing).values():
-            try:
-                future.result()
-            except KafkaException as error:
-                if error.args[0].code() != KafkaError.TOPIC_ALREADY_EXISTS:
-                    raise
-
-
 def check_delivery(err, _message):
     if err is not None:
         raise RuntimeError(f"delivery failed: {err}")
@@ -246,7 +231,7 @@ def run(producer, emissions, stopping):
 def main():
     from confluent_kafka import Producer
 
-    bootstrap = os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092")
+    bootstrap = os.environ.get("KAFKA_BOOTSTRAP", BOOTSTRAP)
     seed = os.environ.get("SEED", "fda")
     create_topics(bootstrap)
     producer = Producer({"bootstrap.servers": bootstrap})

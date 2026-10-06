@@ -50,9 +50,6 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-    environment:
-      KAFKA_BOOTSTRAP: kafka:9092
-      SEED: fda
     mem_limit: 128m
     logging:
       driver: local
@@ -74,7 +71,6 @@ services:
         condition: service_healthy
     env_file: .env
     environment:
-      KAFKA_BOOTSTRAP: kafka:9092
       AWS_DEFAULT_REGION: eu-central-1
     mem_limit: 256m
     stop_grace_period: 30s
