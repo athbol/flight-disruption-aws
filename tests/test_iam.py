@@ -142,3 +142,22 @@ def test_deploy_can_pass_only_fda_roles():
     assert passing
     for statement in passing:
         assert resources(statement) == [f"arn:aws:iam::{ACCOUNT}:role/fda-*"]
+
+
+def test_deploy_cannot_change_its_own_roles_or_the_oidc_provider():
+    policy = iam.deploy_policy(ACCOUNT)
+    denies = [s for s in policy["Statement"] if s["Effect"] == "Deny"]
+    [deny] = denies
+    assert set(actions(deny)) == {
+        "iam:Update*",
+        "iam:Put*",
+        "iam:Attach*",
+        "iam:Detach*",
+        "iam:Delete*",
+        "iam:Create*",
+    }
+    gha_roles = [
+        r for r in resources(deny) if r.startswith(f"arn:aws:iam::{ACCOUNT}:role/fda-gha-")
+    ]
+    assert gha_roles == [f"arn:aws:iam::{ACCOUNT}:role/fda-gha-*"]
+    assert OIDC_ARN in resources(deny)
