@@ -64,7 +64,7 @@ services:
     env_file: .env
     environment:
       KAFKA_BOOTSTRAP: kafka:9092
-      AWS_REGION: eu-central-1
+      AWS_DEFAULT_REGION: eu-central-1
     mem_limit: 256m
     stop_grace_period: 30s
     logging:
