@@ -22,7 +22,7 @@ Nothing listens on the host. The containers talk over the compose network.
 
    ```sh
    pulumi stack output --stack athbol-projects/flight-disruption-aws/prod --show-secrets --json \
-     | python3 -c 'import json, sys; o = json.load(sys.stdin); print(f"RAW_BUCKET={o[\"bucket\"]}\nAWS_ACCESS_KEY_ID={o[\"consumer_access_key_id\"]}\nAWS_SECRET_ACCESS_KEY={o[\"consumer_secret_access_key\"]}")' \
+     | python3 -c 'import json, sys; o = json.load(sys.stdin); [print(k + "=" + o[v]) for k, v in [("RAW_BUCKET", "bucket"), ("AWS_ACCESS_KEY_ID", "consumer_access_key_id"), ("AWS_SECRET_ACCESS_KEY", "consumer_secret_access_key")]]' \
      | ssh arkitsa 'sudo install -m 600 -o root -g root /dev/stdin /opt/flight-disruption-aws/.env'
    ```
 
