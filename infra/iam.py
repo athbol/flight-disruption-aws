@@ -1,9 +1,11 @@
+from fda.consumer import METRIC_NAMESPACE
+from fda.raw import RAW_PREFIX
+
 GITHUB_OIDC_HOST = "token.actions.githubusercontent.com"
 GITHUB_OWNER = "athbol"
 GITHUB_OWNER_ID = 32675046
 GITHUB_REPO = "flight-disruption-aws"
 GITHUB_REPO_ID = 1406409508
-METRIC_NAMESPACE = "FlightDisruption"
 
 
 def policy(statements):
@@ -38,7 +40,7 @@ def consumer_policy(table_arn, bucket_arn, vps_ip):
                 [table_arn],
                 from_ip(vps_ip),
             ),
-            allow(["s3:PutObject"], [f"{bucket_arn}/raw/*"], from_ip(vps_ip)),
+            allow(["s3:PutObject"], [f"{bucket_arn}/{RAW_PREFIX}/*"], from_ip(vps_ip)),
             allow(["cloudwatch:PutMetricData"], ["*"], from_ip(vps_ip, namespace)),
         ]
     )
@@ -50,7 +52,7 @@ def glue_policy(bucket_arn, region, account):
         [
             allow(
                 ["s3:GetObject", "s3:ListBucket"],
-                [bucket_arn, f"{bucket_arn}/raw/*", f"{bucket_arn}/artifacts/*"],
+                [bucket_arn, f"{bucket_arn}/{RAW_PREFIX}/*", f"{bucket_arn}/artifacts/*"],
             ),
             allow(
                 ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"],

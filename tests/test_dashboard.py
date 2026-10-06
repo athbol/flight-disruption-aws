@@ -9,13 +9,13 @@ from fda.consumer import (
     TOPICS,
     WRITTEN,
 )
+from fda.live import TABLE_NAME
 
 REGION = "eu-central-1"
-TABLE = "fda-live"
 
 
 def widgets(kind):
-    return [w for w in dashboard.dashboard(REGION, TABLE)["widgets"] if w["type"] == kind]
+    return [w for w in dashboard.dashboard(REGION, TABLE_NAME)["widgets"] if w["type"] == kind]
 
 
 def metrics(widget):
@@ -25,11 +25,11 @@ def metrics(widget):
 def test_four_metric_widgets_and_one_text_widget():
     assert len(widgets("metric")) == 4
     assert len(widgets("text")) == 1
-    assert len(dashboard.dashboard(REGION, TABLE)["widgets"]) == 5
+    assert len(dashboard.dashboard(REGION, TABLE_NAME)["widgets"]) == 5
 
 
 def test_widgets_sit_in_two_columns():
-    for widget in dashboard.dashboard(REGION, TABLE)["widgets"]:
+    for widget in dashboard.dashboard(REGION, TABLE_NAME)["widgets"]:
         assert widget["x"] in (0, 12)
         assert widget["width"] == 12
 
@@ -60,9 +60,9 @@ def test_heartbeat_is_per_minute_and_events_per_five_minutes_with_written_stacke
 def test_dynamodb_widget_shows_writes_and_throttles_for_the_table():
     *_, dynamodb = widgets("metric")
     assert metrics(dynamodb) == [
-        ("AWS/DynamoDB", "ConsumedWriteCapacityUnits", "TableName", TABLE),
-        ("AWS/DynamoDB", "WriteThrottleEvents", "TableName", TABLE),
-        ("AWS/DynamoDB", "ReadThrottleEvents", "TableName", TABLE),
+        ("AWS/DynamoDB", "ConsumedWriteCapacityUnits", "TableName", TABLE_NAME),
+        ("AWS/DynamoDB", "WriteThrottleEvents", "TableName", TABLE_NAME),
+        ("AWS/DynamoDB", "ReadThrottleEvents", "TableName", TABLE_NAME),
     ]
 
 

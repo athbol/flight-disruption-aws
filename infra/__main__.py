@@ -8,9 +8,10 @@ import pulumi
 import pulumi_aws as aws
 
 from fda.consumer import HEARTBEAT, METRIC_NAMESPACE
-from fda.schemas import PARTITION_KEY
+from fda.live import TABLE_NAME
+from fda.raw import RAW_PREFIX
+from fda.schemas import CURATED, PARTITION_KEY
 
-GITHUB_OIDC_URL = "https://token.actions.githubusercontent.com"
 GITHUB_THUMBPRINT = "6938fd4d98bab03faadb97b34396831e3780aea1"
 FDA_MODULES = ("__init__.py", "schemas.py", "curate.py")
 HIVE_PARQUET = "org.apache.hadoop.hive.ql.io.parquet"
@@ -43,7 +44,7 @@ aws.s3.BucketLifecycleConfiguration(
         {
             "id": "expire-raw",
             "status": "Enabled",
-            "filter": {"prefix": "raw/"},
+            "filter": {"prefix": f"{RAW_PREFIX}/"},
             "expiration": {"days": 30},
         },
         {
@@ -68,7 +69,7 @@ aws.s3.BucketPolicy(
 
 table = aws.dynamodb.Table(
     "live",
-    name="fda-live",
+    name=TABLE_NAME,
     hash_key="pk",
     range_key="sk",
     attributes=[{"name": "pk", "type": "S"}, {"name": "sk", "type": "S"}],
@@ -138,7 +139,7 @@ curate_job = aws.glue.Job(
     },
     default_arguments={
         "--extra-py-files": pulumi.Output.format("s3://{0}/{1}", bucket.bucket, glue_package.key),
-        "--RAW_ROOT": pulumi.Output.format("s3://{0}/raw", bucket.bucket),
+        "--RAW_ROOT": pulumi.Output.format("s3://{0}/{1}", bucket.bucket, RAW_PREFIX),
         "--CURATED_ROOT": pulumi.Output.format("s3://{0}/curated", bucket.bucket),
         "--RUN_DATE": "today",
         "--job-language": "python",
@@ -155,7 +156,7 @@ aws.glue.Trigger(
 )
 
 database = aws.glue.CatalogDatabase("catalog", name="fda")
-for name in ("journeys", "flights"):
+for name in CURATED:
     location = pulumi.Output.format("s3://{0}/curated/{1}/", bucket.bucket, name)
     aws.glue.CatalogTable(
         name,
@@ -296,7 +297,7 @@ aws.budgets.Budget(
 
 aws.iam.OpenIdConnectProvider(
     "github",
-    url=GITHUB_OIDC_URL,
+    url=f"https://{iam.GITHUB_OIDC_HOST}",
     client_id_lists=["sts.amazonaws.com"],
     thumbprint_lists=[GITHUB_THUMBPRINT],
 )
