@@ -44,7 +44,7 @@ def links(region):
 def dashboard(region, table):
     dynamodb = [
         ["AWS/DynamoDB", "ConsumedWriteCapacityUnits", "TableName", table],
-        ["AWS/DynamoDB", "ThrottledRequests", "TableName", table],
+        ["AWS/DynamoDB", "ThrottledRequests", "TableName", table, "Operation", "PutItem"],
     ]
     return {
         "widgets": [
