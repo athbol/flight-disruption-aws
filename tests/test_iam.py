@@ -34,10 +34,6 @@ def all_resources(policy):
     return {resource for statement in policy["Statement"] for resource in resources(statement)}
 
 
-def policy_of(statements):
-    return {"Statement": statements}
-
-
 def all_actions(policy):
     return {action for statement in policy["Statement"] for action in actions(statement)}
 
@@ -269,13 +265,15 @@ def test_deploy_cannot_empty_overwrite_or_block_the_trail_bucket():
     assert_trail_bucket_locked(iam.deploy_policy(ACCOUNT), f"arn:aws:s3:::fda-{ACCOUNT}-trail")
 
 
-def test_boundary_cannot_empty_overwrite_or_block_any_trail_bucket():
-    assert_trail_bucket_locked(iam.boundary_policy(), "arn:aws:s3:::fda-*-trail")
+def test_boundary_cannot_empty_overwrite_or_block_the_trail_bucket():
+    boundary = iam.boundary_policy(ACCOUNT)
+    assert_trail_bucket_locked(boundary, f"arn:aws:s3:::fda-{ACCOUNT}-trail")
+    assert not any("*-trail" in resource for resource in all_resources(boundary))
 
 
 def test_boundary_allows_only_the_data_services_and_no_identity_actions():
-    boundary = iam.boundary_policy()
-    allows = policy_of([s for s in boundary["Statement"] if s["Effect"] == "Allow"])
+    boundary = iam.boundary_policy(ACCOUNT)
+    allows = {"Statement": [s for s in boundary["Statement"] if s["Effect"] == "Allow"]}
     assert all_resources(allows) == {"*"}
     assert all_actions(allows) == {
         "s3:*",
