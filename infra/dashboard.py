@@ -1,4 +1,12 @@
-from fda.consumer import HEARTBEAT, METRIC_NAMESPACE, STALE, TOPIC_DIMENSION, TOPICS, WRITTEN
+from fda.consumer import (
+    HEARTBEAT,
+    METRIC_NAMESPACE,
+    REJECTED,
+    STALE,
+    TOPIC_DIMENSION,
+    TOPICS,
+    WRITTEN,
+)
 
 
 def metric_widget(x, y, title, region, metrics, period, stacked=False):
@@ -51,7 +59,14 @@ def dashboard(region, table):
         "widgets": [
             metric_widget(0, 0, "Consumer heartbeat", region, [[METRIC_NAMESPACE, HEARTBEAT]], 60),
             metric_widget(12, 0, "Events written", region, per_topic(WRITTEN), 300, stacked=True),
-            metric_widget(0, 6, "Stale events skipped", region, per_topic(STALE), 300),
+            metric_widget(
+                0,
+                6,
+                "Stale and rejected events",
+                region,
+                per_topic(STALE) + per_topic(REJECTED),
+                300,
+            ),
             metric_widget(12, 6, f"DynamoDB {table}", region, dynamodb, 300),
             {
                 "type": "text",
