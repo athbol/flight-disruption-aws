@@ -49,20 +49,33 @@ Screenshots from the live system, in the order the data flows.
 
 ## One passenger, two stores
 
-The same synthetic passenger as the consumer sees them in DynamoDB and as an analyst sees them in Athena after the daily job. The values below show the shape of the two records. A real rebooked passenger replaces them after the first full-day run on 2026-10-07.
+Passenger `P20261007-000` was booked on flight F0400 on 7 October. F0400 was cancelled, and at 05:11 UTC the passenger was rebooked onto F0412 and their ticket exchanged. Here is how the consumer and an analyst see them.
 
-The DynamoDB item is the latest event for that booking, keyed `PAX#<passenger>` / `BOOKING#<booking>`, so one query by passenger returns their bookings and tickets:
+The DynamoDB item is the latest event for that booking. It is keyed `PAX#<passenger>` / `BOOKING#<booking>`, so one query by passenger returns both their booking and their ticket. Sequence 2 is the rebooking, which replaced sequence 1, the original booking:
 
 ```json
-{ "pk": "PAX#...", "sk": "BOOKING#...", "event_type": "rebooked", "sequence": 2, "flight_id": "...", "original_flight_id": "..." }
+{
+  "pk": "PAX#P20261007-000",
+  "sk": "BOOKING#B20261007-000",
+  "event_type": "rebooked",
+  "sequence": 2,
+  "event_time": "2026-10-07T05:11:57+00:00",
+  "flight_id": "F0412-2026-10-07",
+  "original_flight_id": "F0400-2026-10-07",
+  "booking_id": "B20261007-000",
+  "passenger_id": "P20261007-000",
+  "event_id": "116e75c5-bf54-568e-94fd-5cbc37472993"
+}
 ```
 
-The Athena row, from `sql/passenger_journey.sql`, joins that booking with both flights and the ticket, and classifies the journey:
+The Athena row comes from [sql/passenger_journey.sql](sql/passenger_journey.sql). The daily job joins the booking with both flights and the ticket and classifies the journey:
 
 ```
-passenger_id | flight_id | flight_status | booking_status | original_flight_id | original_flight_status | ticket_status | disruption
-P...         | F0...     | departed      | rebooked       | F0...              | cancelled              | exchanged     | cancelled_rebooked
+passenger_id  | flight_id        | flight_status | booking_status | original_flight_id | original_flight_status | ticket_status | disruption
+P20261007-000 | F0412-2026-10-07 | scheduled     | rebooked       | F0400-2026-10-07   | cancelled              | exchanged     | cancelled_rebooked
 ```
+
+The new flight still shows `scheduled` because the job ran before it departed. The next run updates it.
 
 ## The hard parts
 
