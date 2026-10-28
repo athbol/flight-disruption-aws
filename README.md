@@ -19,6 +19,99 @@ I built it to show, on a public repo with no customer data, how I would rebuild 
 
 Pulumi describes all of it in `infra/`. A push to `main` runs `pulumi up` through GitHub Actions, which gets its AWS credentials from OIDC instead of stored keys. CloudWatch alarms and an EventBridge rule send an email when the consumer stops, when DynamoDB throttles, or when the daily job fails.
 
+## How each part works
+
+### The events
+
+Every event is one JSON message. It has four common fields, the envelope, and the fields of its topic:
+
+```json
+{
+  "event_id": "3f9c...",
+  "event_type": "rebooked",
+  "event_time": "2026-10-07T05:12:44+00:00",
+  "sequence": 2,
+  "booking_id": "B20261007-030",
+  "passenger_id": "P20261007-030",
+  "flight_id": "F0407-2026-10-07",
+  "original_flight_id": "F0401-2026-10-07"
+}
+```
+
+`src/fda/schemas.py` is the data contract. It lists the fields of each topic, the fields that are whole numbers, and the columns of the two curated tables. The generator, the consumer, the topic setup and the Spark job all import it. You add a new field in one file, and every part reads it. It is a shared module, not a schema registry. A registry becomes useful when another team or another language reads these topics.
+
+The generator (`src/fda/generator.py`) works in four steps:
+
+1. It plans 24 flights a day on six routes. Each flight is cancelled (8%), delayed by 15 to 240 minutes (12%) or on time.
+2. It gives each flight 30 passengers, each with a booking and a ticket. On a cancelled flight, 70% of passengers are rebooked to another flight on the same route. The others are refunded.
+3. It writes each change of a flight, booking or ticket as one event, with `sequence` 1, 2, 3 for that entity. For example, a booking is `created` (1), then `rebooked` (2).
+4. It sends each event to Kafka at its due time. 85% go out within 5 seconds and 3% are up to 36 hours late. 2% go out twice. 30% of cancellations are held back for 1 to 3 hours.
+
+All random choices come from a seed and the date. The same seed always gives the same day, so a run can be replayed exactly.
+
+### Kafka
+
+There are three topics: `flights`, `bookings` and `tickets`. Each has one partition. The message key is the flight, booking or ticket id, so all events of one entity stay in order. One partition is enough because one consumer handles about 1,400 passengers a day with no lag. More partitions would allow more consumers in parallel, but order would then hold only per key.
+
+The broker keeps messages for 48 hours (`compose.yaml`). This retention is a buffer for a consumer outage. It is not the archive. The S3 `raw/` prefix is the archive.
+
+### The consumer
+
+`src/fda/consumer.py` runs in Docker next to Kafka. It reads all three topics as the group `fda-consumer`, with auto-commit off. For each message it does three things:
+
+1. It writes the event to DynamoDB at once (`src/fda/live.py`).
+2. It adds the raw message to a buffer in memory.
+3. It counts the result per topic as written, stale or rejected.
+
+The DynamoDB write is a conditional put: write only if the item does not exist, or if the stored `sequence` is lower. A duplicate or an older event fails the condition, and the consumer counts it as stale. The consumer stores bookings and tickets under `PAX#<passenger>`, so one query returns all of a passenger's items.
+
+When the buffer reaches 5,000 events, 16 MB or 5 minutes, the consumer writes it to S3. Then it commits the Kafka offset. A crash before the commit replays those events, so no event is lost. Every 60 seconds the consumer sends a heartbeat and its counts to CloudWatch. An alarm sends an email when the heartbeat is missing for 10 minutes.
+
+### The S3 bucket
+
+One bucket holds four prefixes:
+
+| Prefix | Content | Written by |
+|--------|---------|------------|
+| `raw/` | every event as received, gzip JSON lines | the consumer |
+| `curated/` | the `journeys` and `flights` Parquet tables | the daily job |
+| `artifacts/glue/` | the job's entry script and the `fda` package as a zip | Pulumi, on each deploy |
+| `athena-results/` | the result of each Athena query | Athena |
+
+Each IAM identity can write only to its own prefix. A raw file name holds the topic, the arrival day, the partition and the first and last offset:
+
+```
+raw/topic=bookings/dt=2026-10-07/0-000000001200-000000001450.jsonl.gz
+```
+
+The file holds each message unchanged on one line, duplicates included. The raw archive is the source of truth. If the daily job has a bug, a fix and a rerun rebuild the curated tables from it. If the consumer replays a batch, it writes the same file name with the same bytes, so the upload replaces the file.
+
+### The daily job
+
+`fda-curate` is a Glue job. Glue runs a PySpark script on workers that AWS starts for the run and stops after it. A Glue trigger starts the job at 02:30 UTC. The logic is in `src/fda/curate.py`, and `jobs/glue_curate.py` only starts it. On each deploy, Pulumi uploads both to `artifacts/glue/`, because Glue reads code from S3 only.
+
+The job does six steps:
+
+1. It selects the run day and the three days before it.
+2. It reads those days of `raw/` and parses each line with the schema from `schemas.py`.
+3. It drops events without an `event_id` or a `sequence`, and drops duplicates by `event_id`.
+4. It keeps the event with the highest `sequence` per flight, booking and ticket. This is the same rule as the DynamoDB write, so the two stores agree.
+5. It joins each booking to its current flight, its original flight and its ticket, and labels the disruption: `cancelled_rebooked`, `cancelled_refunded`, `delayed` or `none`.
+6. It writes `journeys` and `flights` as Parquet, partitioned by `flight_date`. It overwrites only the four days it read, so a rerun gives the same result.
+
+### Athena and DynamoDB
+
+The two stores answer different questions:
+
+| | DynamoDB `fda-live` | Athena on `curated/` |
+|---|---|---|
+| Question | What is the state of this passenger now? | How many journeys were disrupted last week? |
+| Holds | The latest version of each entity | Every day, from the daily job |
+| Access | One key, in milliseconds | SQL with `GROUP BY` and joins, in seconds |
+| Fresh | At once | After the next daily run |
+
+Athena runs SQL on the Parquet files in S3. It finds the tables in the Glue Data Catalog. Partition projection lets it find each new `flight_date` folder with no crawler. A query that filters on `flight_date` reads only those folders, and Parquet lets it read only the columns it needs.
+
 ## It runs
 
 Screenshots from the live system, in the order the data flows.
@@ -40,10 +133,6 @@ Screenshots from the live system, in the order the data flows.
 <tr>
 <td width="50%" valign="top">8. One CI run on main: the tests, then the deploy job.<br><img src="docs/screenshots/08-github-actions-green.png" alt="GitHub Actions"></td>
 <td width="50%" valign="top">9. The Pulumi step of that deploy: one resource updated, one replaced, 47 unchanged.<br><img src="docs/screenshots/09-pulumi-up.png" alt="Pulumi up in CI"></td>
-</tr>
-<tr>
-<td width="50%" valign="top">10. The 1 USD monthly budget.<br><img src="docs/screenshots/10-budget.png" alt="Budget"></td>
-<td width="50%" valign="top"></td>
 </tr>
 </table>
 
